@@ -29,7 +29,7 @@ async def test_inicia_sesion_sin_token_y_devuelve_la_sesion(client):
     assert cuerpo["tokenType"] == "Bearer"
     assert cuerpo["expiresIn"] == 3600
     claims = jwt.decode(cuerpo["accessToken"], SECRETO, algorithms=["HS256"])
-    assert claims["clienteId"] == "cliente-demo-ana"
+    assert claims["clienteId"] == "cliente-demo"
     assert claims["email"] == CREDENCIALES_DEMO["email"]
 
 
@@ -62,7 +62,7 @@ async def test_refresco_emite_una_sesion_nueva(client):
     )
     assert resp.status_code == 200
     claims = jwt.decode(resp.json()["accessToken"], SECRETO, algorithms=["HS256"])
-    assert claims["clienteId"] == "cliente-demo-ana"
+    assert claims["clienteId"] == "cliente-demo"
 
 
 async def test_refresco_rechaza_un_access_token(client):

@@ -8,6 +8,7 @@ from app.adapters.core_client import CoreClientAdapter
 from app.adapters.fakes import FakeCoreIdentity, FakeIdentityProvider
 from app.adapters.identity_platform import IdentityPlatformAdapter
 from app.config import Settings
+from app.domain import ClienteCore
 from app.ports import CoreIdentityPort, IdentityProviderPort
 from app.resilience import ResilientHttpClient, build_breaker
 from app.security import SessionIssuer
@@ -42,6 +43,19 @@ def _cliente_http(settings: Settings, base_url: str, nombre: str) -> ResilientHt
     )
 
 
+_SUB_DEMO = "sub-demo"
+
+
+def _fakes(settings: Settings) -> tuple[FakeIdentityProvider, FakeCoreIdentity]:
+    email, clave = settings.fake_demo_email, settings.fake_demo_password
+    if not email or not clave:
+        return FakeIdentityProvider(), FakeCoreIdentity()
+    return (
+        FakeIdentityProvider({email: (_SUB_DEMO, clave)}),
+        FakeCoreIdentity({_SUB_DEMO: ClienteCore(id="cliente-demo", email=email)}),
+    )
+
+
 def build_dependencias(settings: Settings) -> Dependencias:
     sessions = SessionIssuer(
         settings.session_secret,
@@ -50,7 +64,8 @@ def build_dependencias(settings: Settings) -> Dependencias:
     )
 
     if settings.adapters == "fake":
-        return Dependencias(FakeIdentityProvider(), FakeCoreIdentity(), sessions)
+        identity, core = _fakes(settings)
+        return Dependencias(identity, core, sessions)
 
     if settings.adapters == "http":
         return Dependencias(

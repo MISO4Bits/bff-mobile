@@ -46,6 +46,7 @@ curl -X POST http://localhost:8082/v1/sesiones -H 'content-type: application/jso
 |---|---|---|
 | `MOBILE_ADAPTERS` | `fake` | `fake` \| `http` |
 | `MOBILE_CORE_BASE_URL` | `http://localhost:8080` | svc-core (modo `http`) |
+| `MOBILE_FAKE_DEMO_EMAIL` / `MOBILE_FAKE_DEMO_PASSWORD` | — | usuario de demostración del modo `fake` (ambos o ninguno) |
 | `MOBILE_IDENTITY_BASE_URL` / `MOBILE_IDENTITY_API_KEY` | — | Identity Platform (modo `http`); la clave se monta como archivo en `/var/secrets` |
 | `MOBILE_SESSION_SECRET` | `dev-only-change-me` | firma del JWT de sesión; **cambiar fuera de local** |
 | `MOBILE_SESSION_TTL_SECONDS` / `MOBILE_REFRESH_TTL_SECONDS` | `3600` / `86400` | vigencia de acceso y refresco |

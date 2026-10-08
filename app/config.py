@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     identity_api_key: str = "fake-api-key"
     core_base_url: str = "http://localhost:8080"
 
+    # Solo modo "fake": usuario de demostración para desarrollar el canal sin
+    # Identity Platform. Sin valores por defecto a propósito: no se versionan
+    # credenciales. Si falta alguno, el modo fake arranca sin usuarios.
+    fake_demo_email: str | None = None
+    fake_demo_password: str | None = None
+
     # Patrones de resiliencia hacia dependencias (§6.1: timeout duro 700 ms)
     http_timeout_seconds: float = 0.7
     http_retries: int = 2

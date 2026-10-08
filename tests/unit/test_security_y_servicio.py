@@ -128,7 +128,10 @@ async def test_iniciar_sesion_sin_cliente_asociado_es_no_encontrado():
 
 
 async def test_refrescar_acepta_el_refresh_de_una_sesion_iniciada():
-    servicio = _servicio()
-    sesion = await servicio.iniciar_sesion("ana.rios@example.com", "unaClaveSegura1")
+    servicio = _servicio(
+        usuarios={"ana@x.com": ("sub-1", "clave")},
+        clientes={"sub-1": ClienteCore(id="cli-1", email="ana@x.com")},
+    )
+    sesion = await servicio.iniciar_sesion("ana@x.com", "clave")
     nueva = servicio.refrescar(sesion.refresh_token)
-    assert SessionIssuer(SECRETO).verificar(nueva.access_token).email == "ana.rios@example.com"
+    assert SessionIssuer(SECRETO).verificar(nueva.access_token).email == "ana@x.com"

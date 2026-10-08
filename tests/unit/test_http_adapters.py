@@ -125,7 +125,7 @@ def test_los_dobles_cumplen_los_puertos():
 
 async def test_el_doble_de_core_sin_clientes_no_encuentra_a_nadie():
     with pytest.raises(RecursoNoEncontrado):
-        await FakeCoreIdentity({}).buscar_cliente_por_identidad("sub-demo-ana")
+        await FakeCoreIdentity({}).buscar_cliente_por_identidad("sub-1")
 
 
 async def test_la_fabrica_construye_los_adaptadores_segun_el_modo():
@@ -140,3 +140,23 @@ async def test_la_fabrica_construye_los_adaptadores_segun_el_modo():
 
     with pytest.raises(ValueError):
         build_dependencias(Settings(adapters="otro"))
+
+
+@pytest.mark.parametrize(
+    "demo",
+    [{}, {"fake_demo_email": "ana@x.com"}, {"fake_demo_password": "clave"}],
+)
+async def test_el_modo_fake_sin_usuario_de_demostracion_completo_arranca_sin_usuarios(demo):
+    # No se versionan credenciales: sin email y clave configurados no hay nadie que entre.
+    deps = build_dependencias(Settings(adapters="fake", **demo))
+    with pytest.raises(NoAutorizado):
+        await deps.identity.autenticar("ana@x.com", "clave")
+
+
+async def test_el_modo_fake_crea_el_usuario_de_demostracion_configurado():
+    deps = build_dependencias(
+        Settings(adapters="fake", fake_demo_email="ana@x.com", fake_demo_password="clave")
+    )
+    sub = await deps.identity.autenticar("ana@x.com", "clave")
+    cliente = await deps.core.buscar_cliente_por_identidad(sub)
+    assert cliente.email == "ana@x.com"
