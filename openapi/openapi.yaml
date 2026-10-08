@@ -1,0 +1,248 @@
+openapi: 3.1.3
+
+info:
+  title: BFF Móvil — Sesión
+  summary: API del canal móvil para iniciar y refrescar la sesión de los clientes de Solventa.
+  description: |
+    Backend for Frontend del cliente móvil.
+
+    Alcance de esta versión (`0.1.x`): **sesión** — inicio de sesión con correo y
+    contraseña y refresco del token de acceso. Mismos endpoints y mismo contrato que
+    el canal web; el resto del journey se agrega en versiones posteriores.
+
+    Entrada real: `App móvil → Cloud LB → Cloud Armor (WAF) → API Gateway → BFF Móvil`.
+
+    **Sesión propia.** El BFF móvil emite su propio JWT de sesión, firmado con un
+    secreto distinto al del BFF web: un token emitido por un canal no vale en el otro.
+
+    Errores en formato **RFC 9457 (Problem Details)**, `application/problem+json`.
+  version: 0.1.0
+  contact:
+    name: Equipo 4Bits
+  license:
+    name: Uso académico 4Bits
+
+servers:
+  - url: https://dev.solventa4bits.com/mobile
+    description: Entorno de desarrollo
+
+tags:
+  - name: Sesión
+    description: Inicio de sesión y refresco de token.
+
+security: []
+
+paths:
+  /v1/sesiones:
+    post:
+      operationId: iniciarSesion
+      tags: [Sesión]
+      summary: Inicia sesión con correo y contraseña
+      description: |
+        **Público** (no requiere token).
+
+        1. Valida las credenciales en Identity Platform.
+        2. Busca al cliente en CoreTransaccional por su identidad.
+        3. Emite la sesión (token de acceso y de refresco).
+
+        Responde `401` si las credenciales no son válidas y `404` si la identidad
+        existe pero no tiene un cliente registrado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CredencialesRequest' }
+      responses:
+        '200':
+          description: Sesión iniciada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sesion' }
+        '400': { $ref: '#/components/responses/SolicitudInvalida' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '503': { $ref: '#/components/responses/DependenciaNoDisponible' }
+
+  /v1/sesiones/refresco:
+    post:
+      operationId: refrescarSesion
+      tags: [Sesión]
+      summary: Refresca el token de acceso
+      description: |
+        **Público** (no requiere token de acceso; se autentica con el `refreshToken`).
+        Valida el token de refresco y emite una sesión nueva, sin consultar a ningún
+        otro servicio. Responde `401` si el token está expirado, es inválido o no es
+        un token de refresco.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefrescoRequest' }
+      responses:
+        '200':
+          description: Sesión nueva.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sesion' }
+        '400': { $ref: '#/components/responses/SolicitudInvalida' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+
+components:
+
+  responses:
+    SolicitudInvalida:
+      description: Solicitud mal formada o con validación de esquema fallida.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemaValidacion' }
+          examples:
+            camposInvalidos:
+              summary: Campos que no cumplen el esquema
+              value:
+                type: about:blank
+                title: Solicitud inválida
+                status: 400
+                detail: La solicitud no cumple el esquema
+                instance: https://dev.solventa4bits.com/mobile/v1/sesiones
+                errores:
+                  - campo: body.email
+                    mensaje: String should match pattern '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+            campoFaltante:
+              summary: Falta un campo obligatorio
+              value:
+                type: about:blank
+                title: Solicitud inválida
+                status: 400
+                detail: La solicitud no cumple el esquema
+                instance: https://dev.solventa4bits.com/mobile/v1/sesiones/refresco
+                errores:
+                  - campo: body.refreshToken
+                    mensaje: Field required
+    NoAutorizado:
+      description: Credenciales inválidas, o token de refresco expirado o inválido.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+          examples:
+            credencialesInvalidas:
+              summary: Correo o contraseña incorrectos
+              value:
+                type: about:blank
+                title: No autorizado
+                status: 401
+                detail: credenciales inválidas
+                instance: https://dev.solventa4bits.com/mobile/v1/sesiones
+            tokenExpirado:
+              summary: El token de refresco ya venció
+              value:
+                type: about:blank
+                title: No autorizado
+                status: 401
+                detail: token expirado
+                instance: https://dev.solventa4bits.com/mobile/v1/sesiones/refresco
+    NoEncontrado:
+      description: La identidad autenticó bien pero no tiene un cliente registrado.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+          examples:
+            clienteInexistente:
+              summary: Sin cliente asociado
+              value:
+                type: about:blank
+                title: Recurso no encontrado
+                status: 404
+                detail: Cliente no encontrado
+                instance: https://dev.solventa4bits.com/mobile/v1/sesiones
+    DependenciaNoDisponible:
+      description: Una dependencia aguas abajo (Identity Platform / CoreTransaccional) no respondió a tiempo.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+          examples:
+            dependenciaLenta:
+              summary: CoreTransaccional no respondió a tiempo
+              value:
+                type: about:blank
+                title: Dependencia no disponible
+                status: 503
+                detail: timeout esperando respuesta de svc-core
+                instance: https://dev.solventa4bits.com/mobile/v1/sesiones
+
+  schemas:
+
+    CredencialesRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      examples:
+        - email: ana.rios@example.com
+          password: Clave-Segura-2026
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+
+    RefrescoRequest:
+      type: object
+      additionalProperties: false
+      required: [refreshToken]
+      examples:
+        - refreshToken: eyJhbGciOiJIUzI1NiJ9.eyJ0eXAiOiJyZWZyZXNoIn0.c2lnbmF0dXJh
+      properties:
+        refreshToken: { type: string }
+
+    Sesion:
+      type: object
+      additionalProperties: false
+      required: [accessToken, tokenType, expiresIn, refreshToken]
+      examples:
+        - accessToken: eyJhbGciOiJIUzI1NiJ9.eyJ0eXAiOiJhY2Nlc3MifQ.c2lnbmF0dXJh
+          tokenType: Bearer
+          expiresIn: 3600
+          refreshToken: eyJhbGciOiJIUzI1NiJ9.eyJ0eXAiOiJyZWZyZXNoIn0.c2lnbmF0dXJh
+      properties:
+        accessToken: { type: string, description: JWT de sesión emitido por el BFF móvil. }
+        tokenType: { type: string, const: Bearer }
+        expiresIn: { type: integer, description: Segundos de vigencia del accessToken. }
+        refreshToken: { type: string }
+
+    Problema:
+      description: Error en formato RFC 9457 (Problem Details for HTTP APIs).
+      type: object
+      properties:
+        type: { type: string, format: uri, default: 'about:blank' }
+        title: { type: string }
+        status: { type: integer, minimum: 100, maximum: 599 }
+        detail: { type: string }
+        instance: { type: string, format: uri-reference }
+      examples:
+        - type: about:blank
+          title: No autorizado
+          status: 401
+          detail: credenciales inválidas
+          instance: https://dev.solventa4bits.com/mobile/v1/sesiones
+
+    ProblemaValidacion:
+      description: |
+        `Problema` con el detalle campo por campo. Solo lo devuelve la validación
+        del esquema de la solicitud (`400`); el resto de errores no lleva `errores`.
+      allOf:
+        - $ref: '#/components/schemas/Problema'
+        - type: object
+          properties:
+            errores:
+              type: array
+              items:
+                type: object
+                properties:
+                  campo: { type: string, description: Ruta del campo con error, por ejemplo `body.email`. }
+                  mensaje: { type: string }
+      examples:
+        - type: about:blank
+          title: Solicitud inválida
+          status: 400
+          detail: La solicitud no cumple el esquema
+          instance: https://dev.solventa4bits.com/mobile/v1/sesiones
+          errores:
+            - campo: body.email
+              mensaje: String should match pattern '^[^@\s]+@[^@\s]+\.[^@\s]+$'

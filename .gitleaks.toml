@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Identificadores públicos conocidos, no secretos (ej. clave de proyecto de SonarQube Cloud), contrato OpenAPI (solo ejemplos ficticios) y pruebas (secretos de sesión falsos para firmar JWT de prueba)"
+paths = [
+  '''^openapi/openapi\.yaml$''',
+  '''^tests/''',
+]
+regexes = [
+  '''^MISO4Bits_[\w-]+$''',
+]

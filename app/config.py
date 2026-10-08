@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Configuración por variables de entorno (prefijo ``MOBILE_``)."""
+
+    # secrets_dir: lee valores montados como archivo (p. ej. por el add-on de
+    # Secret Manager de GKE vía CSI) — el nombre de archivo esperado sigue la
+    # misma regla que las variables de entorno, con el prefijo MOBILE_ incluido
+    # (ej. MOBILE_IDENTITY_API_KEY). Si el directorio no existe (local, tests),
+    # pydantic-settings solo emite una advertencia, no falla.
+    model_config = SettingsConfigDict(
+        env_prefix="MOBILE_", env_file=".env", secrets_dir="/var/secrets", extra="ignore"
+    )
+
+    service_name: str = "bff-mobile"
+    environment: str = "local"
+
+    # Adaptadores de salida: "fake" (todo en memoria, standalone) | "http" (servicios reales)
+    adapters: str = "fake"
+
+    identity_base_url: str = "http://localhost:9099/identitytoolkit.googleapis.com"
+    identity_api_key: str = "fake-api-key"
+    core_base_url: str = "http://localhost:8080"
+
+    # Solo modo "fake": usuario de demostración para desarrollar el canal sin
+    # Identity Platform. Sin valores por defecto a propósito: no se versionan
+    # credenciales. Si falta alguno, el modo fake arranca sin usuarios.
+    fake_demo_email: str | None = None
+    fake_demo_password: str | None = None
+
+    # Patrones de resiliencia hacia dependencias (§6.1: timeout duro 700 ms)
+    http_timeout_seconds: float = 0.7
+    http_retries: int = 2
+    # Pool de conexiones hacia dependencias: espera corta por una conexión libre
+    # y límites explícitos, no los defaults de httpx.
+    http_pool_timeout_seconds: float = 0.1
+    http_max_connections: int = 200
+    http_max_keepalive_connections: int = 100
+    circuit_fail_max: int = 5
+    circuit_reset_timeout_seconds: int = 30
+
+    # Sesión emitida por el BFF móvil. Secreto propio, distinto al de bff-web:
+    # un token de un canal no debe valer en el otro.
+    session_secret: str = "dev-only-change-me"
+    session_ttl_seconds: int = 3600
+    refresh_ttl_seconds: int = 86400
+
+    # Observabilidad (DI-008): OTLP/gRPC hacia Grafana Alloy dentro del
+    # cluster. Deshabilitado por defecto — en local/tests no hay receptor
+    # escuchando; se habilita vía MOBILE_OTEL_ENABLED=true en el manifiesto de
+    # despliegue.
+    otel_enabled: bool = False
+    otel_exporter_endpoint: str = (
+        "k8s-monitoring-alloy-receiver.observability.svc.cluster.local:4317"
+    )
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
