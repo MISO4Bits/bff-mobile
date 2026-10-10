@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     identity_base_url: str = "http://localhost:9099/identitytoolkit.googleapis.com"
     identity_api_key: str = "fake-api-key"
     core_base_url: str = "http://localhost:8080"
+    productos_base_url: str = "http://localhost:8100"
+    perfilamiento_base_url: str = "http://localhost:8110"
+
+    # La lista de entidades del mercado casi no cambia: se guarda en el BFF para no
+    # llamar a Productos en cada pantalla (y poder responder si Productos cae).
+    entidades_cache_segundos: int = 3600
 
     # Solo modo "fake": usuario de demostración para desarrollar el canal sin
     # Identity Platform. Sin valores por defecto a propósito: no se versionan

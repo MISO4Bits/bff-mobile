@@ -33,7 +33,11 @@ def _app_ops(app) -> set[tuple[str, str]]:
 
 def test_contrato_y_codigo_exponen_las_mismas_operaciones(app, openapi_spec):
     assert _spec_ops(openapi_spec) == _app_ops(app)
-    assert _spec_ops(openapi_spec) == {("POST", "/v1/sesiones"), ("POST", "/v1/sesiones/refresco")}
+    assert _spec_ops(openapi_spec) == {
+        ("POST", "/v1/sesiones"),
+        ("POST", "/v1/sesiones/refresco"),
+        ("GET", "/v1/creditos-hipotecarios"),
+    }
 
 
 def _validar(spec: dict, ref: str, instancia) -> None:
@@ -79,3 +83,13 @@ def test_los_ejemplos_cumplen_su_esquema(openapi_spec):
             ref = media["schema"]["$ref"].rsplit("/", 1)[-1]
             for ejemplo in media.get("examples", {}).values():
                 _validar(openapi_spec, ref, ejemplo["value"])
+
+
+async def test_creditos_hipotecarios_cumplen_el_contrato(client, openapi_spec):
+    sesion = await client.post("/v1/sesiones", json=CREDENCIALES_DEMO)
+    headers = {"Authorization": f"Bearer {sesion.json()['accessToken']}"}
+
+    resp = await client.get("/v1/creditos-hipotecarios", headers=headers)
+
+    assert resp.status_code == 200
+    _validar(openapi_spec, "CreditosHipotecarios", resp.json())

@@ -5,11 +5,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.adapters.core_client import CoreClientAdapter
-from app.adapters.fakes import FakeCoreIdentity, FakeIdentityProvider
+from app.adapters.fakes import (
+    FakeCoreIdentity,
+    FakeCreditosHipotecarios,
+    FakeEntidadesFinancieras,
+    FakeIdentityProvider,
+)
 from app.adapters.identity_platform import IdentityPlatformAdapter
+from app.adapters.perfilamiento_client import PerfilamientoClientAdapter
+from app.adapters.productos_client import ProductosClientAdapter
 from app.config import Settings
 from app.domain import ClienteCore
-from app.ports import CoreIdentityPort, IdentityProviderPort
+from app.ports import (
+    CoreIdentityPort,
+    CreditosHipotecariosPort,
+    EntidadesFinancierasPort,
+    IdentityProviderPort,
+)
 from app.resilience import ResilientHttpClient, build_breaker
 from app.security import SessionIssuer
 
@@ -19,9 +31,11 @@ class Dependencias:
     identity: IdentityProviderPort
     core: CoreIdentityPort
     sessions: SessionIssuer
+    creditos: CreditosHipotecariosPort
+    entidades: EntidadesFinancierasPort
 
     async def aclose(self) -> None:
-        for adapter in (self.identity, self.core):
+        for adapter in (self.identity, self.core, self.creditos, self.entidades):
             cerrar = getattr(adapter, "aclose", None)
             if cerrar is not None:
                 await cerrar()
@@ -65,7 +79,13 @@ def build_dependencias(settings: Settings) -> Dependencias:
 
     if settings.adapters == "fake":
         identity, core = _fakes(settings)
-        return Dependencias(identity, core, sessions)
+        return Dependencias(
+            identity,
+            core,
+            sessions,
+            FakeCreditosHipotecarios(),
+            FakeEntidadesFinancieras(),
+        )
 
     if settings.adapters == "http":
         return Dependencias(
@@ -75,6 +95,12 @@ def build_dependencias(settings: Settings) -> Dependencias:
             ),
             CoreClientAdapter(_cliente_http(settings, settings.core_base_url, "svc-core")),
             sessions,
+            PerfilamientoClientAdapter(
+                _cliente_http(settings, settings.perfilamiento_base_url, "svc-perfilamiento")
+            ),
+            ProductosClientAdapter(
+                _cliente_http(settings, settings.productos_base_url, "svc-productos")
+            ),
         )
 
     raise ValueError(f"adapters no soportado: {settings.adapters}")
