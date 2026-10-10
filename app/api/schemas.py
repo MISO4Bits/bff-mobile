@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,3 +34,28 @@ class SesionOut(_Model):
     token_type: Literal["Bearer"] = "Bearer"
     expires_in: int
     refresh_token: str
+
+
+# --- créditos hipotecarios (pantalla previa a la cotización) ---
+
+
+class EntidadFinancieraOut(_Model):
+    id: str
+    nombre: str
+
+
+class CreditoHipotecarioOut(_Model):
+    entidad_id: str | None = None
+    entidad_nombre: str
+    valor_credito: float
+    saldo_insoluto: float
+    plazo_restante_meses: int
+    cuota_mensual: float
+
+
+class CreditosHipotecariosOut(_Model):
+    estado: Literal["DISPONIBLE", "SIN_HIPOTECAS", "SIN_CONSENTIMIENTO", "NO_DISPONIBLE"]
+    creditos: list[CreditoHipotecarioOut]
+    entidades: list[EntidadFinancieraOut]
+    origen: Literal["OPEN_FINANCE"] = "OPEN_FINANCE"
+    fecha_consulta: datetime | None = None
