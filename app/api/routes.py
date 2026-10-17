@@ -3,16 +3,18 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 
 from app.api.schemas import (
+    CotizacionOut,
+    CotizacionRequest,
     CredencialesRequest,
     CreditosHipotecariosOut,
     RefrescoRequest,
     SesionOut,
 )
-from app.domain import Claims, NoAutorizado
-from app.services import CreditosHipotecariosService, SesionService
+from app.domain import Claims, CotizacionInput, DatosCreditoInput, NoAutorizado
+from app.services import CotizacionesService, CreditosHipotecariosService, SesionService
 
 logger = logging.getLogger("bff_mobile.api")
 router = APIRouter(prefix="/v1")
@@ -30,6 +32,13 @@ def get_creditos(request: Request) -> CreditosHipotecariosService:
 
 
 CreditosDep = Annotated[CreditosHipotecariosService, Depends(get_creditos)]
+
+
+def get_cotizaciones(request: Request) -> CotizacionesService:
+    return request.app.state.cotizaciones
+
+
+CotizacionesDep = Annotated[CotizacionesService, Depends(get_cotizaciones)]
 
 
 async def claims_actuales(
@@ -76,3 +85,44 @@ async def obtener_creditos_hipotecarios(
     creditos = await service.obtener(claims.cliente_id, mercado)
     response.headers["Cache-Control"] = "no-store"  # datos financieros del cliente
     return CreditosHipotecariosOut.model_validate(creditos)
+
+
+def _a_dominio_cotizacion(payload: CotizacionRequest) -> CotizacionInput:
+    dc = payload.datos_credito
+    return CotizacionInput(
+        datos_credito=DatosCreditoInput(
+            valor_credito=dc.valor_credito,
+            plazo_restante_meses=dc.plazo_restante_meses,
+            entidad_acreedora=dc.entidad_acreedora,
+            saldo_insoluto=dc.saldo_insoluto,
+        ),
+    )
+
+
+@router.post(
+    "/cotizaciones",
+    response_model=CotizacionOut,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Cotización"],
+)
+async def crear_cotizacion(
+    payload: CotizacionRequest, claims: ClaimsDep, service: CotizacionesDep
+) -> CotizacionOut:
+    logger.info("POST /v1/cotizaciones: solicitud recibida cliente_id=%s", claims.cliente_id)
+    cotizacion = await service.crear(
+        claims.cliente_id, claims.fecha_nacimiento, _a_dominio_cotizacion(payload)
+    )
+    return CotizacionOut.model_validate(cotizacion)
+
+
+@router.get(
+    "/cotizaciones/actual",
+    response_model=CotizacionOut,
+    response_model_exclude_none=True,
+    tags=["Cotización"],
+)
+async def obtener_cotizacion_activa(claims: ClaimsDep, service: CotizacionesDep) -> CotizacionOut:
+    logger.info("GET /v1/cotizaciones/actual: solicitud recibida cliente_id=%s", claims.cliente_id)
+    cotizacion = await service.obtener_activa(claims.cliente_id)
+    return CotizacionOut.model_validate(cotizacion)

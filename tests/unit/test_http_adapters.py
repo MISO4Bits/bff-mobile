@@ -81,7 +81,13 @@ async def test_autenticar_con_otro_error_del_proveedor_es_error_del_bff(status):
 async def test_buscar_cliente_por_identidad_envia_identity_ref_y_mapea():
     ruta = respx.get(f"{CORE}/clientes").mock(
         return_value=httpx.Response(
-            200, json={"id": "cli-1", "email": "a@b.com", "primerNombre": "Ana"}
+            200,
+            json={
+                "id": "cli-1",
+                "email": "a@b.com",
+                "primerNombre": "Ana",
+                "fechaNacimiento": "1990-01-01",
+            },
         )
     )
     adapter = _core()
@@ -90,6 +96,7 @@ async def test_buscar_cliente_por_identidad_envia_identity_ref_y_mapea():
     finally:
         await adapter.aclose()
     assert (cliente.id, cliente.email) == ("cli-1", "a@b.com")
+    assert cliente.fecha_nacimiento.isoformat() == "1990-01-01"
     assert dict(ruta.calls.last.request.url.params) == {"identityRef": "sub-1"}
 
 

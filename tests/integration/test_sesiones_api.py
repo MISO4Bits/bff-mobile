@@ -119,12 +119,15 @@ async def test_el_inicio_de_sesion_atraviesa_identity_y_core(http_client):
         return_value=httpx.Response(200, json={"localId": "sub-9"})
     )
     respx.get(f"{CORE}/clientes").mock(
-        return_value=httpx.Response(200, json={"id": "c-9", "email": "ana@example.com"})
+        return_value=httpx.Response(
+            200, json={"id": "c-9", "email": "ana@example.com", "fechaNacimiento": "1990-06-15"}
+        )
     )
     resp = await http_client.post("/v1/sesiones", json=CREDENCIALES_DEMO)
     assert resp.status_code == 200
     claims = jwt.decode(resp.json()["accessToken"], SECRETO, algorithms=["HS256"])
     assert (claims["sub"], claims["clienteId"]) == ("sub-9", "c-9")
+    assert claims["fechaNacimiento"] == "1990-06-15"
 
 
 @respx.mock

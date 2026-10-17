@@ -37,6 +37,8 @@ def test_contrato_y_codigo_exponen_las_mismas_operaciones(app, openapi_spec):
         ("POST", "/v1/sesiones"),
         ("POST", "/v1/sesiones/refresco"),
         ("GET", "/v1/creditos-hipotecarios"),
+        ("POST", "/v1/cotizaciones"),
+        ("GET", "/v1/cotizaciones/actual"),
     }
 
 
@@ -93,3 +95,33 @@ async def test_creditos_hipotecarios_cumplen_el_contrato(client, openapi_spec):
 
     assert resp.status_code == 200
     _validar(openapi_spec, "CreditosHipotecarios", resp.json())
+
+
+SOLICITUD_COTIZACION = {
+    "datosCredito": {
+        "valorCredito": 120000000,
+        "plazoRestanteMeses": 120,
+        "entidadAcreedora": "Banco Solventa",
+        "saldoInsoluto": 100000000,
+    },
+}
+
+
+async def test_la_cotizacion_cumple_el_contrato(client, openapi_spec):
+    sesion = await client.post("/v1/sesiones", json=CREDENCIALES_DEMO)
+    headers = {"Authorization": f"Bearer {sesion.json()['accessToken']}"}
+
+    creada = await client.post("/v1/cotizaciones", headers=headers, json=SOLICITUD_COTIZACION)
+    assert creada.status_code == 201
+    _validar(openapi_spec, "Cotizacion", creada.json())
+
+    activa = await client.get("/v1/cotizaciones/actual", headers=headers)
+    assert activa.status_code == 200
+    _validar(openapi_spec, "Cotizacion", activa.json())
+
+
+async def test_el_contrato_de_cotizacion_no_tiene_id_ni_cuestionario(openapi_spec):
+    esquemas = openapi_spec["components"]["schemas"]
+    assert "id" not in esquemas["Cotizacion"]["properties"]
+    assert "cuestionarioHabitos" not in esquemas["CotizacionRequest"]["properties"]
+    assert "edad" not in esquemas["DatosCredito"]["properties"]

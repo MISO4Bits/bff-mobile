@@ -8,18 +8,25 @@ import re
 import time
 import unicodedata
 from collections.abc import Callable
+from datetime import date
 
 from app.domain import (
     ESTADO_DISPONIBLE,
     ESTADO_NO_DISPONIBLE,
     BffError,
+    Cotizacion,
+    CotizacionInput,
     CreditoHipotecario,
     CreditosHipotecarios,
     EntidadFinanciera,
+    NoAutorizado,
     Sesion,
+    calcular_edad,
+    hoy_en_colombia,
 )
 from app.ports import (
     CoreIdentityPort,
+    CotizacionPort,
     CreditosHipotecariosPort,
     EntidadesFinancierasPort,
     IdentityProviderPort,
@@ -45,10 +52,43 @@ class SesionService:
         sub = await self._identity.autenticar(email, password)
         cliente = await self._core.buscar_cliente_por_identidad(sub)
         logger.info("iniciar_sesion: sesión iniciada cliente_id=%s", cliente.id)
-        return self._sessions.emitir(sub=sub, cliente_id=cliente.id, email=cliente.email)
+        return self._sessions.emitir(
+            sub=sub,
+            cliente_id=cliente.id,
+            email=cliente.email,
+            fecha_nacimiento=cliente.fecha_nacimiento,
+        )
 
     def refrescar(self, refresh_token: str) -> Sesion:
         return self._sessions.refrescar(refresh_token)
+
+
+class CotizacionesService:
+    """Cotización activa del cliente. La edad no la manda el dispositivo: se deriva de la
+    fecha de nacimiento que viaja en la sesión."""
+
+    def __init__(
+        self, cotizacion: CotizacionPort, hoy: Callable[[], date] = hoy_en_colombia
+    ) -> None:
+        self._cotizacion = cotizacion
+        self._hoy = hoy
+
+    async def crear(
+        self, cliente_id: str, fecha_nacimiento: date | None, entrada: CotizacionInput
+    ) -> Cotizacion:
+        """Cotiza y deja la cotización como la activa del cliente (reemplaza la anterior)."""
+        if fecha_nacimiento is None:
+            # Sesión emitida antes de que la fecha viajara en el token.
+            raise NoAutorizado("la sesión está desactualizada: inicia sesión de nuevo")
+        edad = calcular_edad(fecha_nacimiento, self._hoy())
+        logger.info("crear_cotizacion: solicitando cotización cliente_id=%s", cliente_id)
+        cotizacion = await self._cotizacion.crear_cotizacion(cliente_id, edad, entrada)
+        logger.info("crear_cotizacion: cotización activa estado=%s", cotizacion.estado)
+        return cotizacion
+
+    async def obtener_activa(self, cliente_id: str) -> Cotizacion:
+        logger.info("obtener_cotizacion_activa: consultando cliente_id=%s", cliente_id)
+        return await self._cotizacion.obtener_cotizacion_activa(cliente_id)
 
 
 _TOKEN = re.compile(r"[a-z0-9]+")

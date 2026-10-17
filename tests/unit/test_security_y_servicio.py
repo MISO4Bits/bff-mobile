@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import date
 
 import jwt
 import pytest
@@ -13,6 +14,7 @@ from app.security import SessionIssuer
 from app.services import SesionService
 
 SECRETO = "secreto-de-pruebas-de-al-menos-32-bytes"
+NACIMIENTO = date(1990, 1, 1)
 
 
 def _servicio(usuarios=None, clientes=None) -> SesionService:
@@ -28,7 +30,7 @@ def _servicio(usuarios=None, clientes=None) -> SesionService:
 
 def test_emitir_devuelve_tokens_con_los_claims_de_negocio():
     sesion = SessionIssuer(SECRETO, ttl_seconds=600).emitir(
-        sub="s1", cliente_id="c1", email="a@b.com"
+        sub="s1", cliente_id="c1", email="a@b.com", fecha_nacimiento=NACIMIENTO
     )
     assert sesion.token_type == "Bearer"
     assert sesion.expires_in == 600
@@ -42,14 +44,14 @@ def test_emitir_devuelve_tokens_con_los_claims_de_negocio():
 
 def test_verificar_devuelve_los_claims():
     issuer = SessionIssuer(SECRETO)
-    sesion = issuer.emitir(sub="s1", cliente_id="c1", email="a@b.com")
+    sesion = issuer.emitir(sub="s1", cliente_id="c1", email="a@b.com", fecha_nacimiento=NACIMIENTO)
     claims = issuer.verificar(sesion.access_token)
     assert (claims.sub, claims.cliente_id, claims.email) == ("s1", "c1", "a@b.com")
 
 
 def test_refrescar_emite_una_sesion_nueva_para_el_mismo_cliente():
     issuer = SessionIssuer(SECRETO)
-    sesion = issuer.emitir(sub="s1", cliente_id="c1", email="a@b.com")
+    sesion = issuer.emitir(sub="s1", cliente_id="c1", email="a@b.com", fecha_nacimiento=NACIMIENTO)
     nueva = issuer.refrescar(sesion.refresh_token)
     assert issuer.verificar(nueva.access_token).cliente_id == "c1"
 
@@ -58,7 +60,7 @@ def test_un_token_de_otro_secreto_se_rechaza():
     # El BFF web y el móvil firman con secretos distintos: un token no cruza de canal.
     issuer = SessionIssuer(SECRETO)
     ajeno = SessionIssuer("otro-secreto-de-al-menos-32-bytes!!").emitir(
-        sub="s", cliente_id="c", email="a@b.com"
+        sub="s", cliente_id="c", email="a@b.com", fecha_nacimiento=NACIMIENTO
     )
     with pytest.raises(NoAutorizado):
         issuer.verificar(ajeno.access_token)
@@ -84,7 +86,7 @@ def test_un_token_expirado_se_rechaza():
 
 def test_el_tipo_de_token_debe_coincidir():
     issuer = SessionIssuer(SECRETO)
-    sesion = issuer.emitir(sub="s", cliente_id="c", email="a@b.com")
+    sesion = issuer.emitir(sub="s", cliente_id="c", email="a@b.com", fecha_nacimiento=NACIMIENTO)
     with pytest.raises(NoAutorizado):
         issuer.verificar(sesion.refresh_token)  # el refresco no sirve como acceso
     with pytest.raises(NoAutorizado):
@@ -103,7 +105,7 @@ def test_un_token_malformado_se_rechaza(token):
 async def test_iniciar_sesion_con_credenciales_validas():
     servicio = _servicio(
         usuarios={"ana@x.com": ("sub-1", "clave")},
-        clientes={"sub-1": ClienteCore(id="cli-1", email="ana@x.com")},
+        clientes={"sub-1": ClienteCore(id="cli-1", email="ana@x.com", fecha_nacimiento=NACIMIENTO)},
     )
     sesion = await servicio.iniciar_sesion("ana@x.com", "clave")
     claims = SessionIssuer(SECRETO).verificar(sesion.access_token)
@@ -130,7 +132,7 @@ async def test_iniciar_sesion_sin_cliente_asociado_es_no_encontrado():
 async def test_refrescar_acepta_el_refresh_de_una_sesion_iniciada():
     servicio = _servicio(
         usuarios={"ana@x.com": ("sub-1", "clave")},
-        clientes={"sub-1": ClienteCore(id="cli-1", email="ana@x.com")},
+        clientes={"sub-1": ClienteCore(id="cli-1", email="ana@x.com", fecha_nacimiento=NACIMIENTO)},
     )
     sesion = await servicio.iniciar_sesion("ana@x.com", "clave")
     nueva = servicio.refrescar(sesion.refresh_token)

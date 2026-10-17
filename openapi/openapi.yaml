@@ -9,7 +9,9 @@ info:
     Alcance de esta versión (`0.1.x`): **sesión** — inicio de sesión con correo y
     contraseña y refresco del token de acceso — y el **paso previo a cotizar**: las
     hipotecas del cliente y los bancos del mercado. Mismos endpoints y mismo contrato
-    que el canal web; el resto del journey se agrega en versiones posteriores.
+    que el canal web; el resto del journey se agrega en versiones posteriores. Incluye la
+    **cotización activa** del cliente (`POST` y `GET /v1/cotizaciones`): una por cliente, y una
+    nueva reemplaza a la anterior.
 
     Entrada real: `App móvil → Cloud LB → Cloud Armor (WAF) → API Gateway → BFF Móvil`.
 
@@ -130,6 +132,56 @@ paths:
         '400': { $ref: '#/components/responses/SolicitudInvalida' }
         '401': { $ref: '#/components/responses/NoAutorizado' }
         '503': { $ref: '#/components/responses/DependenciaNoDisponible' }
+
+  /v1/cotizaciones:
+    post:
+      operationId: crearCotizacion
+      tags: [Cotización]
+      summary: Cotiza un seguro de vida sobre crédito hipotecario
+      description: |
+        Calcula la cotización y la deja como **la activa** del cliente: una nueva reemplaza a
+        la anterior (el cliente no acumula cotizaciones, compra pólizas). La cotización no
+        tiene id propio.
+
+        La identidad sale de la sesión: el cliente no puede cotizar en nombre de otro. La edad
+        tampoco viaja en la solicitud: el BFF la calcula de la fecha de nacimiento de la sesión.
+        Una sesión emitida antes de ese cambio responde `401`: hay que iniciar sesión de nuevo.
+
+        Cotización y Rating intenta perfilar el riesgo; si esa dependencia no responde, cae a
+        tarifa estándar (`personalizado: false`) en vez de fallar. Responde `400` con el campo
+        y el rango cuando la edad no está entre 18 y 65 años, o cuando el crédito terminaría
+        después de los 75 años.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CotizacionRequest' }
+      responses:
+        '201':
+          description: Cotización creada. Es ahora la activa del cliente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cotizacion' }
+        '400': { $ref: '#/components/responses/SolicitudInvalida' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '503': { $ref: '#/components/responses/DependenciaNoDisponible' }
+
+  /v1/cotizaciones/actual:
+    get:
+      operationId: obtenerCotizacionActiva
+      tags: [Cotización]
+      summary: Consulta la cotización activa del cliente
+      description: |
+        La cotización activa del cliente de la sesión, para mostrarla en el Home y retomarla.
+        `estado` es `EXPIRADA` pasados 30 días de su creación.
+      responses:
+        '200':
+          description: Cotización activa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cotizacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
 components:
 
@@ -256,6 +308,125 @@ components:
         tokenType: { type: string, const: Bearer }
         expiresIn: { type: integer, description: Segundos de vigencia del accessToken. }
         refreshToken: { type: string }
+
+    DatosCredito:
+      type: object
+      additionalProperties: false
+      required: [valorCredito, plazoRestanteMeses, entidadAcreedora, saldoInsoluto]
+      properties:
+        valorCredito: { type: number, minimum: 10000000 }
+        plazoRestanteMeses:
+          type: integer
+          minimum: 1
+          maximum: 480
+          description: Meses que le faltan al crédito. Con la edad, no puede pasar de los 75 años.
+        entidadAcreedora: { type: string, minLength: 2, maxLength: 80 }
+        saldoInsoluto: { type: number, exclusiveMinimum: 0 }
+
+    CotizacionRequest:
+      type: object
+      additionalProperties: false
+      required: [datosCredito]
+      examples:
+        - datosCredito:
+            valorCredito: 250000000
+            plazoRestanteMeses: 180
+            entidadAcreedora: Bancolombia
+            saldoInsoluto: 238500000
+      properties:
+        datosCredito: { $ref: '#/components/schemas/DatosCredito' }
+
+    FactorRiesgo:
+      type: object
+      additionalProperties: false
+      required: [descripcion, efecto]
+      properties:
+        descripcion: { type: string }
+        efecto: { type: string, enum: [POSITIVO, NEGATIVO] }
+        pesoRelativo: { type: [number, 'null'] }
+
+    PerfilRiesgo:
+      type: object
+      additionalProperties: false
+      required: [nivelRiesgo, factores]
+      properties:
+        nivelRiesgo: { type: string, enum: [BAJO, MEDIO, ALTO] }
+        factores:
+          type: array
+          items: { $ref: '#/components/schemas/FactorRiesgo' }
+
+    Oferta:
+      type: object
+      additionalProperties: false
+      required: [primaMensual, primaBaseMensual, sumaAsegurada, coberturaMeses, moneda, personalizado]
+      properties:
+        primaMensual: { type: number }
+        primaBaseMensual: { type: number }
+        sumaAsegurada: { type: number }
+        coberturaMeses: { type: integer }
+        moneda: { type: string, const: COP }
+        personalizado: { type: boolean }
+        fuentesNoDisponibles:
+          type: array
+          items: { type: string }
+
+    Vigencia:
+      type: object
+      additionalProperties: false
+      required: [desde, hasta]
+      properties:
+        desde: { type: string, format: date-time }
+        hasta: { type: string, format: date-time }
+
+    Cotizacion:
+      type: object
+      additionalProperties: false
+      required: [estado, producto, datosCredito, origenDatos, oferta, vigenciaCotizacion, creadaEn]
+      examples:
+        - estado: VIGENTE
+          producto: VIDA_HIPOTECARIO
+          datosCredito:
+            valorCredito: 250000000
+            plazoRestanteMeses: 180
+            entidadAcreedora: Bancolombia
+            saldoInsoluto: 238500000
+          origenDatos: DECLARADO
+          oferta:
+            primaMensual: 39734
+            primaBaseMensual: 46746
+            sumaAsegurada: 238500000
+            coberturaMeses: 180
+            moneda: COP
+            personalizado: true
+          perfilRiesgo:
+            nivelRiesgo: BAJO
+            factores:
+              - descripcion: Historial de pagos excelente
+                efecto: POSITIVO
+                pesoRelativo: 0.1
+              - descripcion: Endeudamiento bajo
+                efecto: POSITIVO
+                pesoRelativo: 0.2
+          vigenciaCotizacion:
+            desde: '2026-10-06T14:35:00Z'
+            hasta: '2026-11-05T14:35:00Z'
+          creadaEn: '2026-10-06T14:35:00Z'
+      properties:
+        estado: { type: string, enum: [VIGENTE, EXPIRADA] }
+        producto: { type: string, const: VIDA_HIPOTECARIO }
+        datosCredito: { $ref: '#/components/schemas/DatosCredito' }
+        origenDatos:
+          type: string
+          enum: [DECLARADO]
+          description: De dónde salen los datos del crédito. Hoy los escribe el cliente.
+        oferta: { $ref: '#/components/schemas/Oferta' }
+        perfilRiesgo:
+          oneOf:
+            - { $ref: '#/components/schemas/PerfilRiesgo' }
+            - type: 'null'
+        vigenciaCotizacion: { $ref: '#/components/schemas/Vigencia' }
+        creadaEn: { type: string, format: date-time }
+
 
     EntidadFinanciera:
       type: object
