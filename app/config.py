@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     core_base_url: str = "http://localhost:8080"
     productos_base_url: str = "http://localhost:8100"
     perfilamiento_base_url: str = "http://localhost:8110"
+    cotizacion_base_url: str = "http://localhost:8120"
 
     # La lista de entidades del mercado casi no cambia: se guarda en el BFF para no
     # llamar a Productos en cada pantalla (y poder responder si Productos cae).

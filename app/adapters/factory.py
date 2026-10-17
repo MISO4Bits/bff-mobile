@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from app.adapters.core_client import CoreClientAdapter
+from app.adapters.cotizacion_client import CotizacionClientAdapter
 from app.adapters.fakes import (
     FakeCoreIdentity,
+    FakeCotizacion,
     FakeCreditosHipotecarios,
     FakeEntidadesFinancieras,
     FakeIdentityProvider,
@@ -18,6 +21,7 @@ from app.config import Settings
 from app.domain import ClienteCore
 from app.ports import (
     CoreIdentityPort,
+    CotizacionPort,
     CreditosHipotecariosPort,
     EntidadesFinancierasPort,
     IdentityProviderPort,
@@ -33,9 +37,10 @@ class Dependencias:
     sessions: SessionIssuer
     creditos: CreditosHipotecariosPort
     entidades: EntidadesFinancierasPort
+    cotizacion: CotizacionPort
 
     async def aclose(self) -> None:
-        for adapter in (self.identity, self.core, self.creditos, self.entidades):
+        for adapter in (self.identity, self.core, self.creditos, self.entidades, self.cotizacion):
             cerrar = getattr(adapter, "aclose", None)
             if cerrar is not None:
                 await cerrar()
@@ -66,7 +71,13 @@ def _fakes(settings: Settings) -> tuple[FakeIdentityProvider, FakeCoreIdentity]:
         return FakeIdentityProvider(), FakeCoreIdentity()
     return (
         FakeIdentityProvider({email: (_SUB_DEMO, clave)}),
-        FakeCoreIdentity({_SUB_DEMO: ClienteCore(id="cliente-demo", email=email)}),
+        FakeCoreIdentity(
+            {
+                _SUB_DEMO: ClienteCore(
+                    id="cliente-demo", email=email, fecha_nacimiento=date(1990, 1, 1)
+                )
+            }
+        ),
     )
 
 
@@ -85,6 +96,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             sessions,
             FakeCreditosHipotecarios(),
             FakeEntidadesFinancieras(),
+            FakeCotizacion(),
         )
 
     if settings.adapters == "http":
@@ -100,6 +112,9 @@ def build_dependencias(settings: Settings) -> Dependencias:
             ),
             ProductosClientAdapter(
                 _cliente_http(settings, settings.productos_base_url, "svc-productos")
+            ),
+            CotizacionClientAdapter(
+                _cliente_http(settings, settings.cotizacion_base_url, "svc-cotizacion")
             ),
         )
 

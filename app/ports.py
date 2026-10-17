@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.domain import ClienteCore, CreditosReportados, EntidadFinanciera
+from app.domain import (
+    ClienteCore,
+    Cotizacion,
+    CotizacionInput,
+    CreditosReportados,
+    EntidadFinanciera,
+)
 
 
 @runtime_checkable
@@ -29,3 +35,14 @@ class CreditosHipotecariosPort(Protocol):
 @runtime_checkable
 class EntidadesFinancierasPort(Protocol):
     async def listar_entidades(self, mercado: str) -> list[EntidadFinanciera]: ...
+
+
+@runtime_checkable
+class CotizacionPort(Protocol):
+    async def crear_cotizacion(
+        self, cliente_id: str, edad: int, entrada: CotizacionInput
+    ) -> Cotizacion:
+        """Calcula la cotización y la deja como la activa del cliente (reemplaza la anterior)."""
+        ...
+
+    async def obtener_cotizacion_activa(self, cliente_id: str) -> Cotizacion: ...

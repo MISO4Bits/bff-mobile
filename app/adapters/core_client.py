@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 import httpx
 
@@ -25,7 +26,11 @@ class CoreClientAdapter:
             raise RecursoNoEncontrado("Cliente no encontrado")
         _asegurar_ok(resp)
         data = resp.json()
-        return ClienteCore(id=data["id"], email=data["email"])
+        return ClienteCore(
+            id=data["id"],
+            email=data["email"],
+            fecha_nacimiento=date.fromisoformat(data["fechaNacimiento"]),
+        )
 
 
 def _asegurar_ok(resp: httpx.Response) -> None:
