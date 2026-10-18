@@ -35,6 +35,11 @@ async def test_crear_cotizacion_devuelve_201_sin_id(client, autenticado):
     assert cuerpo["origenDatos"] == "DECLARADO"
     assert cuerpo["datosCredito"]["entidadAcreedora"] == "Banco Solventa"
     assert cuerpo["oferta"]["primaMensual"] > 0
+    vida, hogar = cuerpo["oferta"]["desglose"]["coberturas"]
+    assert (vida["codigo"], vida["iva"]) == ("VIDA", 0)
+    assert vida["primaTotal"] == cuerpo["oferta"]["primaMensual"]
+    assert (hogar["codigo"], hogar["obligatoria"]) == ("HOGAR", False)
+    assert hogar["primaTotal"] == hogar["primaNeta"] + hogar["iva"]
 
 
 async def test_consultar_la_activa_devuelve_la_que_se_creo(client, autenticado):
