@@ -160,3 +160,7 @@ class FakeCotizacion:
         if cotizacion is None:
             raise RecursoNoEncontrado("El cliente no tiene una cotización activa")
         return cotizacion
+
+    async def eliminar_cotizacion_activa(self, cliente_id: str) -> None:
+        if self._activas.pop(cliente_id, None) is None:
+            raise RecursoNoEncontrado("El cliente no tiene una cotización activa")

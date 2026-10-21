@@ -90,6 +90,11 @@ class CotizacionesService:
         logger.info("obtener_cotizacion_activa: consultando cliente_id=%s", cliente_id)
         return await self._cotizacion.obtener_cotizacion_activa(cliente_id)
 
+    async def eliminar_activa(self, cliente_id: str) -> None:
+        """El cliente declinó las condiciones: vuelve al estado de cero cotizaciones."""
+        logger.info("eliminar_cotizacion_activa: eliminando cliente_id=%s", cliente_id)
+        await self._cotizacion.eliminar_cotizacion_activa(cliente_id)
+
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 
