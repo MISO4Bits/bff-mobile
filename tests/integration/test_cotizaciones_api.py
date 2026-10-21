@@ -67,6 +67,23 @@ async def test_sin_cotizacion_activa_devuelve_404(client, autenticado):
     assert resp.status_code == 404
 
 
+async def test_declinar_elimina_la_cotizacion_activa(client, autenticado):
+    await client.post("/v1/cotizaciones", headers=autenticado, json=SOLICITUD)
+
+    resp = await client.delete("/v1/cotizaciones/actual", headers=autenticado)
+
+    assert resp.status_code == 204
+    assert resp.content == b""
+    assert (await client.get("/v1/cotizaciones/actual", headers=autenticado)).status_code == 404
+
+
+async def test_declinar_sin_cotizacion_devuelve_404(client, autenticado):
+    resp = await client.delete("/v1/cotizaciones/actual", headers=autenticado)
+
+    assert resp.status_code == 404
+    assert resp.headers["content-type"].startswith("application/problem+json")
+
+
 async def test_la_solicitud_no_acepta_edad_ni_cuestionario(client, autenticado):
     for extra in ({"edad": 35}, {"cuestionarioHabitos": {"consumeTabaco": False}}):
         resp = await client.post(
@@ -78,6 +95,7 @@ async def test_la_solicitud_no_acepta_edad_ni_cuestionario(client, autenticado):
 async def test_sin_token_devuelve_401(client):
     assert (await client.post("/v1/cotizaciones", json=SOLICITUD)).status_code == 401
     assert (await client.get("/v1/cotizaciones/actual")).status_code == 401
+    assert (await client.delete("/v1/cotizaciones/actual")).status_code == 401
 
 
 async def test_una_sesion_sin_fecha_de_nacimiento_pide_iniciar_sesion_de_nuevo(client, settings):

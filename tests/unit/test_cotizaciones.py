@@ -86,6 +86,23 @@ async def test_la_cotizacion_nueva_reemplaza_a_la_activa_de_cada_cliente():
         await servicio.obtener_activa("cli-2")
 
 
+async def test_eliminar_la_activa_deja_al_cliente_sin_cotizacion():
+    servicio, _ = _servicio()
+    await servicio.crear("cli-1", NACIMIENTO, ENTRADA)
+
+    await servicio.eliminar_activa("cli-1")
+
+    with pytest.raises(RecursoNoEncontrado):
+        await servicio.obtener_activa("cli-1")
+
+
+async def test_eliminar_sin_cotizacion_activa_no_se_encuentra():
+    servicio, _ = _servicio()
+
+    with pytest.raises(RecursoNoEncontrado):
+        await servicio.eliminar_activa("cli-1")
+
+
 # --- cliente HTTP de svc-cotizacion ---
 
 
@@ -237,5 +254,30 @@ async def test_activa_ok_404_y_5xx():
         )
         with pytest.raises(BffError):
             await adapter.obtener_cotizacion_activa("cli-1")
+    finally:
+        await adapter.aclose()
+
+
+@respx.mock
+async def test_eliminar_204_404_y_5xx():
+    ruta = respx.delete(f"{COTIZACION}/v1/cotizaciones/actual").mock(
+        return_value=httpx.Response(204)
+    )
+    adapter = _adapter()
+    try:
+        await adapter.eliminar_cotizacion_activa("cli-1")
+        assert ruta.calls.last.request.headers["x-cliente-id"] == "cli-1"
+
+        respx.delete(f"{COTIZACION}/v1/cotizaciones/actual").mock(
+            return_value=httpx.Response(404, json={})
+        )
+        with pytest.raises(RecursoNoEncontrado):
+            await adapter.eliminar_cotizacion_activa("cli-1")
+
+        respx.delete(f"{COTIZACION}/v1/cotizaciones/actual").mock(
+            return_value=httpx.Response(500, json={})
+        )
+        with pytest.raises(BffError):
+            await adapter.eliminar_cotizacion_activa("cli-1")
     finally:
         await adapter.aclose()

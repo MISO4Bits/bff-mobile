@@ -39,6 +39,7 @@ def test_contrato_y_codigo_exponen_las_mismas_operaciones(app, openapi_spec):
         ("GET", "/v1/creditos-hipotecarios"),
         ("POST", "/v1/cotizaciones"),
         ("GET", "/v1/cotizaciones/actual"),
+        ("DELETE", "/v1/cotizaciones/actual"),
     }
 
 
@@ -118,6 +119,12 @@ async def test_la_cotizacion_cumple_el_contrato(client, openapi_spec):
     activa = await client.get("/v1/cotizaciones/actual", headers=headers)
     assert activa.status_code == 200
     _validar(openapi_spec, "Cotizacion", activa.json())
+
+    declinada = await client.delete("/v1/cotizaciones/actual", headers=headers)
+    assert declinada.status_code == 204
+    sin_cotizacion = await client.get("/v1/cotizaciones/actual", headers=headers)
+    assert sin_cotizacion.status_code == 404
+    _validar(openapi_spec, "Problema", sin_cotizacion.json())
 
 
 async def test_el_contrato_de_cotizacion_no_tiene_id_ni_cuestionario(openapi_spec):

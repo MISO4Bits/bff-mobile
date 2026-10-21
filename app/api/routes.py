@@ -126,3 +126,16 @@ async def obtener_cotizacion_activa(claims: ClaimsDep, service: CotizacionesDep)
     logger.info("GET /v1/cotizaciones/actual: solicitud recibida cliente_id=%s", claims.cliente_id)
     cotizacion = await service.obtener_activa(claims.cliente_id)
     return CotizacionOut.model_validate(cotizacion)
+
+
+@router.delete(
+    "/cotizaciones/actual",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Cotización"],
+)
+async def eliminar_cotizacion_activa(claims: ClaimsDep, service: CotizacionesDep) -> Response:
+    logger.info(
+        "DELETE /v1/cotizaciones/actual: solicitud recibida cliente_id=%s", claims.cliente_id
+    )
+    await service.eliminar_activa(claims.cliente_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
