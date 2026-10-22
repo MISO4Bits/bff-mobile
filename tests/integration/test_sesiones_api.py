@@ -118,7 +118,7 @@ async def test_el_inicio_de_sesion_atraviesa_identity_y_core(http_client):
     respx.post(f"{IDP}/v1/accounts:signInWithPassword").mock(
         return_value=httpx.Response(200, json={"localId": "sub-9"})
     )
-    respx.get(f"{CORE}/clientes").mock(
+    respx.get(f"{CORE}/v1/clientes").mock(
         return_value=httpx.Response(
             200, json={"id": "c-9", "email": "ana@example.com", "fechaNacimiento": "1990-06-15"}
         )
@@ -135,7 +135,7 @@ async def test_identidad_sin_cliente_en_core_es_404(http_client):
     respx.post(f"{IDP}/v1/accounts:signInWithPassword").mock(
         return_value=httpx.Response(200, json={"localId": "sub-9"})
     )
-    respx.get(f"{CORE}/clientes").mock(return_value=httpx.Response(404))
+    respx.get(f"{CORE}/v1/clientes").mock(return_value=httpx.Response(404))
     resp = await http_client.post("/v1/sesiones", json=CREDENCIALES_DEMO)
     assert resp.status_code == 404
 
@@ -153,7 +153,7 @@ async def test_si_core_no_responde_el_bff_devuelve_503(http_client):
     respx.post(f"{IDP}/v1/accounts:signInWithPassword").mock(
         return_value=httpx.Response(200, json={"localId": "sub-9"})
     )
-    respx.get(f"{CORE}/clientes").mock(return_value=httpx.Response(503))
+    respx.get(f"{CORE}/v1/clientes").mock(return_value=httpx.Response(503))
     resp = await http_client.post("/v1/sesiones", json=CREDENCIALES_DEMO)
     assert resp.status_code == 503
     assert resp.headers["content-type"].startswith("application/problem+json")

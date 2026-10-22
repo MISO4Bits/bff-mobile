@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+import httpx
+
 from app.adapters.core_client import CoreClientAdapter
 from app.adapters.cotizacion_client import CotizacionClientAdapter
 from app.adapters.fakes import (
@@ -12,6 +14,7 @@ from app.adapters.fakes import (
     FakeCotizacion,
     FakeCreditosHipotecarios,
     FakeEntidadesFinancieras,
+    FakeEvidencias,
     FakeIdentityProvider,
 )
 from app.adapters.identity_platform import IdentityPlatformAdapter
@@ -24,6 +27,7 @@ from app.ports import (
     CotizacionPort,
     CreditosHipotecariosPort,
     EntidadesFinancierasPort,
+    EvidenciasIdentidadPort,
     IdentityProviderPort,
 )
 from app.resilience import ResilientHttpClient, build_breaker
@@ -38,6 +42,8 @@ class Dependencias:
     creditos: CreditosHipotecariosPort
     entidades: EntidadesFinancierasPort
     cotizacion: CotizacionPort
+    # En modo http es el mismo adaptador que ``core``: se cierra una sola vez.
+    evidencias: EvidenciasIdentidadPort
 
     async def aclose(self) -> None:
         for adapter in (self.identity, self.core, self.creditos, self.entidades, self.cotizacion):
@@ -97,15 +103,22 @@ def build_dependencias(settings: Settings) -> Dependencias:
             FakeCreditosHipotecarios(),
             FakeEntidadesFinancieras(),
             FakeCotizacion(),
+            FakeEvidencias(),
         )
 
     if settings.adapters == "http":
+        core = CoreClientAdapter(
+            _cliente_http(settings, settings.core_base_url, "svc-core"),
+            timeout_subida=httpx.Timeout(
+                settings.evidencias_timeout_seconds, pool=settings.http_pool_timeout_seconds
+            ),
+        )
         return Dependencias(
             IdentityPlatformAdapter(
                 _cliente_http(settings, settings.identity_base_url, "identity-platform"),
                 settings.identity_api_key,
             ),
-            CoreClientAdapter(_cliente_http(settings, settings.core_base_url, "svc-core")),
+            core,
             sessions,
             PerfilamientoClientAdapter(
                 _cliente_http(settings, settings.perfilamiento_base_url, "svc-perfilamiento")
@@ -116,6 +129,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             CotizacionClientAdapter(
                 _cliente_http(settings, settings.cotizacion_base_url, "svc-cotizacion")
             ),
+            core,
         )
 
     raise ValueError(f"adapters no soportado: {settings.adapters}")

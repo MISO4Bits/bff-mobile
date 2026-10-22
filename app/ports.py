@@ -10,6 +10,8 @@ from app.domain import (
     CotizacionInput,
     CreditosReportados,
     EntidadFinanciera,
+    EstadoEvidenciaTipo,
+    ResultadoEvidencia,
 )
 
 
@@ -48,3 +50,17 @@ class CotizacionPort(Protocol):
     async def obtener_cotizacion_activa(self, cliente_id: str) -> Cotizacion: ...
 
     async def eliminar_cotizacion_activa(self, cliente_id: str) -> None: ...
+
+
+@runtime_checkable
+class EvidenciasIdentidadPort(Protocol):
+    async def subir(
+        self, cliente_id: str, tipo: str, imagen: bytes, nombre: str, content_type: str
+    ) -> ResultadoEvidencia:
+        """Una foto de identidad; svc-core decide si sirve. Lanza ``RecursoNoEncontrado``
+        (cliente), ``SolicitudInvalida`` (no es una imagen) o ``ImagenMuyGrande``."""
+        ...
+
+    async def estado(self, cliente_id: str) -> list[EstadoEvidenciaTipo]:
+        """Estado vigente de cada tipo de evidencia (siempre los tres)."""
+        ...

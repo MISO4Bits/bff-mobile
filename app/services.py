@@ -19,8 +19,12 @@ from app.domain import (
     CreditoHipotecario,
     CreditosHipotecarios,
     EntidadFinanciera,
+    EstadoEvidenciaTipo,
+    ImagenMuyGrande,
     NoAutorizado,
+    ResultadoEvidencia,
     Sesion,
+    SolicitudInvalida,
     calcular_edad,
     hoy_en_colombia,
 )
@@ -29,6 +33,7 @@ from app.ports import (
     CotizacionPort,
     CreditosHipotecariosPort,
     EntidadesFinancierasPort,
+    EvidenciasIdentidadPort,
     IdentityProviderPort,
 )
 from app.security import SessionIssuer
@@ -189,3 +194,24 @@ class CreditosHipotecariosService:
             return guardada[1]
         self._cache[mercado] = (ahora, entidades)
         return entidades
+
+
+class EvidenciasIdentidadService:
+    """Foto de la cédula y selfie. svc-core decide si una foto sirve; aquí solo se descartan
+    los envíos que ni vale la pena reenviar."""
+
+    def __init__(self, evidencias: EvidenciasIdentidadPort, *, max_bytes: int) -> None:
+        self._evidencias = evidencias
+        self.max_bytes = max_bytes
+
+    async def subir(
+        self, cliente_id: str, tipo: str, imagen: bytes, nombre: str, content_type: str
+    ) -> ResultadoEvidencia:
+        if len(imagen) > self.max_bytes:
+            raise ImagenMuyGrande(f"La imagen supera el máximo de {self.max_bytes} bytes")
+        if not imagen:
+            raise SolicitudInvalida("La imagen está vacía")
+        return await self._evidencias.subir(cliente_id, tipo, imagen, nombre, content_type)
+
+    async def estado(self, cliente_id: str) -> list[EstadoEvidenciaTipo]:
+        return await self._evidencias.estado(cliente_id)

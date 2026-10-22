@@ -132,3 +132,24 @@ class CotizacionOut(_Model):
     perfil_riesgo: PerfilRiesgoOut | None = None
     vigencia_cotizacion: VigenciaOut
     creada_en: datetime
+
+
+TipoEvidencia = Literal["cedula_frente", "cedula_reverso", "selfie"]
+EstadoVeredicto = Literal["ACEPTADA", "REINTENTAR", "REVISION_MANUAL"]
+MotivoRechazo = Literal["BORROSA", "OSCURA", "REFLEJO", "RECORTADA", "NO_ES_CEDULA"]
+
+
+class EvidenciaSubidaOut(_Model):
+    evidencia_id: str | None = None
+    tipo: TipoEvidencia
+    estado: EstadoVeredicto
+    motivo: MotivoRechazo | None = None
+    intentos_restantes: int
+
+
+class EstadoEvidenciaOut(_Model):
+    tipo: TipoEvidencia
+    estado: Literal["ACEPTADA", "REVISION_MANUAL", "PENDIENTE"]
+    evidencia_id: str | None = None
+    creada_en: datetime | None = None
+    intentos_restantes: int
