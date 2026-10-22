@@ -53,7 +53,18 @@ curl -X POST http://localhost:8082/v1/sesiones -H 'content-type: application/jso
 | `MOBILE_HTTP_TIMEOUT_SECONDS` | `0.7` | timeout duro por dependencia |
 | `MOBILE_HTTP_RETRIES` | `2` | reintentos ante fallo transitorio |
 | `MOBILE_CIRCUIT_FAIL_MAX` | `5` | fallos antes de abrir el circuito |
+| `MOBILE_EVIDENCIA_MAX_BYTES` | `3145728` | peso máximo de una foto de identidad (3 MB); lo que pase se rechaza con 413 antes de procesarlo |
+| `MOBILE_EVIDENCIAS_TIMEOUT_SECONDS` | `5.0` | timeout de la subida a svc-core (incluye su análisis); las subidas **no se reintentan** |
 | `MOBILE_OTEL_ENABLED` | `false` | trazas/métricas/logs hacia Alloy (DI-008) |
+
+### Evidencias de identidad (cédula y selfie, BITS-275)
+
+`POST /v1/cuenta/evidencias-identidad` (multipart: `tipo` ∈ `cedula_frente`, `cedula_reverso`, `selfie` e `imagen`)
+sube **una foto** y devuelve el veredicto de svc-core: `201` si se guarda (`ACEPTADA` o `REVISION_MANUAL`), `200` con
+`motivo` si hay que repetirla. `GET /v1/cuenta/evidencias-identidad` devuelve el estado de los tres tipos. El `clienteId`
+sale de la sesión. El BFF no decide nada: reenvía la foto y descarta de entrada lo vacío o lo que supera el máximo.
+Con `MOBILE_ADAPTERS=fake` el veredicto siempre es `ACEPTADA`; para ver los demás estados, correr contra svc-core con
+`CORE_VERIFICADOR_BACKEND=mock` y `CORE_VERIFICADOR_MOCK_SECUENCIA` (ver el README de svc-core).
 
 ## Pruebas
 

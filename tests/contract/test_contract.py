@@ -40,6 +40,8 @@ def test_contrato_y_codigo_exponen_las_mismas_operaciones(app, openapi_spec):
         ("POST", "/v1/cotizaciones"),
         ("GET", "/v1/cotizaciones/actual"),
         ("DELETE", "/v1/cotizaciones/actual"),
+        ("POST", "/v1/cuenta/evidencias-identidad"),
+        ("GET", "/v1/cuenta/evidencias-identidad"),
     }
 
 
@@ -132,3 +134,39 @@ async def test_el_contrato_de_cotizacion_no_tiene_id_ni_cuestionario(openapi_spe
     assert "id" not in esquemas["Cotizacion"]["properties"]
     assert "cuestionarioHabitos" not in esquemas["CotizacionRequest"]["properties"]
     assert "edad" not in esquemas["DatosCredito"]["properties"]
+
+
+async def test_evidencias_cumplen_el_contrato(client, app, openapi_spec):
+    from app.adapters.fakes import FakeEvidencias
+    from app.services import EvidenciasIdentidadService
+
+    sesion = await client.post("/v1/sesiones", json=CREDENCIALES_DEMO)
+    headers = {"Authorization": f"Bearer {sesion.json()['accessToken']}"}
+    foto = {"imagen": ("foto.jpg", b"\xff\xd8\xff" + b"x" * 100, "image/jpeg")}
+
+    aceptada = await client.post(
+        "/v1/cuenta/evidencias-identidad",
+        headers=headers,
+        data={"tipo": "cedula_frente"},
+        files=foto,
+    )
+    assert aceptada.status_code == 201
+    _validar(openapi_spec, "EvidenciaSubida", aceptada.json())
+
+    app.state.evidencias = EvidenciasIdentidadService(
+        FakeEvidencias(("NO_ES_CEDULA",)), max_bytes=3_000_000
+    )
+    rechazada = await client.post(
+        "/v1/cuenta/evidencias-identidad",
+        headers=headers,
+        data={"tipo": "cedula_reverso"},
+        files=foto,
+    )
+    assert rechazada.status_code == 200
+    _validar(openapi_spec, "EvidenciaSubida", rechazada.json())
+
+    estado = await client.get("/v1/cuenta/evidencias-identidad", headers=headers)
+    assert estado.status_code == 200
+    assert len(estado.json()) == 3
+    for item in estado.json():
+        _validar(openapi_spec, "EstadoEvidencia", item)

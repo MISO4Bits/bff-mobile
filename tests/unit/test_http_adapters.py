@@ -79,7 +79,7 @@ async def test_autenticar_con_otro_error_del_proveedor_es_error_del_bff(status):
 
 @respx.mock
 async def test_buscar_cliente_por_identidad_envia_identity_ref_y_mapea():
-    ruta = respx.get(f"{CORE}/clientes").mock(
+    ruta = respx.get(f"{CORE}/v1/clientes").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -102,7 +102,7 @@ async def test_buscar_cliente_por_identidad_envia_identity_ref_y_mapea():
 
 @respx.mock
 async def test_cliente_inexistente_es_recurso_no_encontrado():
-    respx.get(f"{CORE}/clientes").mock(return_value=httpx.Response(404))
+    respx.get(f"{CORE}/v1/clientes").mock(return_value=httpx.Response(404))
     adapter = _core()
     try:
         with pytest.raises(RecursoNoEncontrado):
@@ -113,7 +113,7 @@ async def test_cliente_inexistente_es_recurso_no_encontrado():
 
 @respx.mock
 async def test_error_de_core_es_error_del_bff():
-    respx.get(f"{CORE}/clientes").mock(return_value=httpx.Response(500))
+    respx.get(f"{CORE}/v1/clientes").mock(return_value=httpx.Response(500))
     adapter = _core()
     try:
         with pytest.raises(BffError):

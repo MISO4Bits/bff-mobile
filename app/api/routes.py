@@ -3,18 +3,37 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 
 from app.api.schemas import (
     CotizacionOut,
     CotizacionRequest,
     CredencialesRequest,
     CreditosHipotecariosOut,
+    EstadoEvidenciaOut,
+    EvidenciaSubidaOut,
     RefrescoRequest,
     SesionOut,
+    TipoEvidencia,
 )
 from app.domain import Claims, CotizacionInput, DatosCreditoInput, NoAutorizado
-from app.services import CotizacionesService, CreditosHipotecariosService, SesionService
+from app.services import (
+    CotizacionesService,
+    CreditosHipotecariosService,
+    EvidenciasIdentidadService,
+    SesionService,
+)
 
 logger = logging.getLogger("bff_mobile.api")
 router = APIRouter(prefix="/v1")
@@ -39,6 +58,13 @@ def get_cotizaciones(request: Request) -> CotizacionesService:
 
 
 CotizacionesDep = Annotated[CotizacionesService, Depends(get_cotizaciones)]
+
+
+def get_evidencias(request: Request) -> EvidenciasIdentidadService:
+    return request.app.state.evidencias
+
+
+EvidenciasDep = Annotated[EvidenciasIdentidadService, Depends(get_evidencias)]
 
 
 async def claims_actuales(
@@ -139,3 +165,52 @@ async def eliminar_cotizacion_activa(claims: ClaimsDep, service: CotizacionesDep
     )
     await service.eliminar_activa(claims.cliente_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/cuenta/evidencias-identidad",
+    response_model=EvidenciaSubidaOut,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Evidencias de identidad"],
+)
+async def subir_mi_evidencia(
+    tipo: Annotated[TipoEvidencia, Form()],
+    imagen: Annotated[UploadFile, File()],
+    claims: ClaimsDep,
+    service: EvidenciasDep,
+    response: Response,
+) -> EvidenciaSubidaOut:
+    logger.info(
+        "POST /v1/cuenta/evidencias-identidad: solicitud recibida cliente_id=%s tipo=%s",
+        claims.cliente_id,
+        tipo,
+    )
+    # Se lee un byte de más para detectar el exceso sin cargar un archivo sin límite.
+    datos = await imagen.read(service.max_bytes + 1)
+    resultado = await service.subir(
+        claims.cliente_id,
+        tipo,
+        datos,
+        imagen.filename or "imagen",
+        imagen.content_type or "application/octet-stream",
+    )
+    if resultado.estado == "REINTENTAR":
+        response.status_code = status.HTTP_200_OK  # veredicto normal: no se creó nada
+    response.headers["Cache-Control"] = "no-store"
+    return EvidenciaSubidaOut.model_validate(resultado)
+
+
+@router.get(
+    "/cuenta/evidencias-identidad",
+    response_model=list[EstadoEvidenciaOut],
+    tags=["Evidencias de identidad"],
+)
+async def estado_mis_evidencias(
+    claims: ClaimsDep, service: EvidenciasDep, response: Response
+) -> list[EstadoEvidenciaOut]:
+    logger.info(
+        "GET /v1/cuenta/evidencias-identidad: solicitud recibida cliente_id=%s", claims.cliente_id
+    )
+    items = await service.estado(claims.cliente_id)
+    response.headers["Cache-Control"] = "no-store"
+    return [EstadoEvidenciaOut.model_validate(i) for i in items]

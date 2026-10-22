@@ -184,6 +184,27 @@ class CreditosHipotecarios:
 # --- errores de aplicación (se traducen a RFC 9457 en la capa API) ---
 
 
+@dataclass(frozen=True)
+class ResultadoEvidencia:
+    """Veredicto de svc-core sobre una foto de identidad. ``evidencia_id`` es ``None`` si hay
+    que reintentar: no se guardó nada."""
+
+    tipo: str
+    estado: str
+    intentos_restantes: int
+    evidencia_id: str | None = None
+    motivo: str | None = None
+
+
+@dataclass(frozen=True)
+class EstadoEvidenciaTipo:
+    tipo: str
+    estado: str  # ACEPTADA | REVISION_MANUAL | PENDIENTE
+    intentos_restantes: int
+    evidencia_id: str | None = None
+    creada_en: datetime | None = None
+
+
 class BffError(Exception):
     status = 500
     title = "Error interno"
@@ -209,6 +230,11 @@ class NoAutorizado(BffError):
 class RecursoNoEncontrado(BffError):
     status = 404
     title = "Recurso no encontrado"
+
+
+class ImagenMuyGrande(BffError):
+    status = 413
+    title = "Imagen demasiado grande"
 
 
 class DependenciaNoDisponible(BffError):
