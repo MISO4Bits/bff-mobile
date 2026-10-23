@@ -188,3 +188,34 @@ async def test_si_core_no_responde_la_subida_falla_con_503_sin_reintentar(http_c
 
     assert respuesta.status_code == 503
     assert en_core.call_count == 1
+
+
+async def test_la_selfie_sin_la_cedula_responde_422(client, autenticado):
+    respuesta = await _subir(client, autenticado, "selfie")
+
+    assert respuesta.status_code == 422
+    assert respuesta.headers["content-type"].startswith("application/problem+json")
+    assert "cédula" in respuesta.json()["detail"]
+
+
+async def test_la_selfie_se_acepta_cuando_la_cedula_ya_esta(client, autenticado):
+    await _subir(client, autenticado, "cedula_frente")
+    await _subir(client, autenticado, "cedula_reverso")
+
+    respuesta = await _subir(client, autenticado, "selfie")
+
+    assert respuesta.status_code == 201
+    assert respuesta.json()["estado"] == "ACEPTADA"
+
+
+async def test_un_motivo_de_la_selfie_llega_al_cliente(app, client, autenticado):
+    app.state.evidencias = EvidenciasIdentidadService(
+        FakeEvidencias(("ACEPTADA", "ACEPTADA", "POSIBLE_SUPLANTACION")), max_bytes=3_000_000
+    )
+    await _subir(client, autenticado, "cedula_frente")
+    await _subir(client, autenticado, "cedula_reverso")
+
+    respuesta = await _subir(client, autenticado, "selfie")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["motivo"] == "POSIBLE_SUPLANTACION"

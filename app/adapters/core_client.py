@@ -13,6 +13,7 @@ from app.domain import (
     EstadoEvidenciaTipo,
     ImagenMuyGrande,
     RecursoNoEncontrado,
+    ReglaNegocio,
     ResultadoEvidencia,
     SolicitudInvalida,
 )
@@ -67,7 +68,11 @@ class CoreClientAdapter:
             raise RecursoNoEncontrado("Cliente no encontrado")
         if resp.status_code == 413:
             raise ImagenMuyGrande()
-        if resp.status_code in (400, 422):
+        if resp.status_code == 422:
+            # La selfie exige ambas caras de la cédula vigentes: es una regla de negocio, no un
+            # campo mal formado.
+            raise ReglaNegocio(_detalle(resp))
+        if resp.status_code == 400:
             raise SolicitudInvalida(_detalle(resp))
         if resp.status_code not in (200, 201):
             raise BffError(f"svc-core respondió {resp.status_code}")
