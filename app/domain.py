@@ -237,6 +237,11 @@ class ImagenMuyGrande(BffError):
     title = "Imagen demasiado grande"
 
 
+class ReglaNegocio(BffError):
+    status = 422
+    title = "Regla de negocio no satisfecha"
+
+
 class DependenciaNoDisponible(BffError):
     status = 503
     title = "Dependencia no disponible"

@@ -26,8 +26,13 @@ from app.domain import (
     NoAutorizado,
     Oferta,
     RecursoNoEncontrado,
+    ReglaNegocio,
     ResultadoEvidencia,
     Vigencia,
+)
+
+MENSAJE_CEDULA_INCOMPLETA = (
+    "Para subir la selfie primero deben estar vigentes ambas caras de la cédula"
 )
 
 
@@ -115,6 +120,11 @@ class FakeEvidencias:
         self, cliente_id: str, tipo: str, imagen: bytes, nombre: str, content_type: str
     ) -> ResultadoEvidencia:
         clave = (cliente_id, tipo)
+        if tipo == "selfie" and not all(
+            (cliente_id, cara) in self._vigentes for cara in ("cedula_frente", "cedula_reverso")
+        ):
+            # Como svc-core: la selfie se compara con la cédula, que debe estar ya vigente.
+            raise ReglaNegocio(MENSAJE_CEDULA_INCOMPLETA)
         veredicto = next(self._veredictos)
         if veredicto not in ("ACEPTADA", "REVISION_MANUAL"):
             rechazos = self._rechazos.get(clave, 0) + 1
