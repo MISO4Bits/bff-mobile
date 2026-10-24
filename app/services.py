@@ -18,6 +18,7 @@ from app.domain import (
     CotizacionInput,
     CreditoHipotecario,
     CreditosHipotecarios,
+    DocumentoLegal,
     EntidadFinanciera,
     EstadoEvidenciaTipo,
     ImagenMuyGrande,
@@ -32,9 +33,11 @@ from app.ports import (
     CoreIdentityPort,
     CotizacionPort,
     CreditosHipotecariosPort,
+    DocumentosLegalesPort,
     EntidadesFinancierasPort,
     EvidenciasIdentidadPort,
     IdentityProviderPort,
+    PolizasPort,
 )
 from app.security import SessionIssuer
 
@@ -215,3 +218,42 @@ class EvidenciasIdentidadService:
 
     async def estado(self, cliente_id: str) -> list[EstadoEvidenciaTipo]:
         return await self._evidencias.estado(cliente_id)
+
+
+class PolizasService:
+    """Solicitud y consulta de pólizas. svc-core decide qué falta y cuándo emitir; aquí solo se
+    pasan las llamadas con el ``clienteId`` del token."""
+
+    def __init__(self, polizas: PolizasPort) -> None:
+        self._polizas = polizas
+
+    async def solicitar(self, cliente_id: str, cuerpo: dict) -> tuple[dict, bool]:
+        return await self._polizas.solicitar(cliente_id, cuerpo)
+
+    async def listar(self, cliente_id: str, estado: str | None) -> list[dict]:
+        return await self._polizas.listar(cliente_id, estado)
+
+    async def obtener(self, cliente_id: str, poliza_id: str) -> dict:
+        return await self._polizas.obtener(cliente_id, poliza_id)
+
+    async def documento(self, cliente_id: str, poliza_id: str) -> tuple[dict, bool]:
+        return await self._polizas.documento(cliente_id, poliza_id)
+
+
+class DocumentosLegalesService:
+    """Textos legales. El BFF los reenvía sin transformarlos: el versionado y el contenido son
+    de Productos y Configuración de Mercado, y la aceptación la registra svc-core con lo que
+    envía la aplicación."""
+
+    def __init__(self, documentos: DocumentosLegalesPort) -> None:
+        self._documentos = documentos
+
+    async def listar_vigentes(
+        self, mercado: str, idioma: str, tipo: str | None = None
+    ) -> list[DocumentoLegal]:
+        return await self._documentos.listar_vigentes(mercado, idioma, tipo)
+
+    async def obtener_version(
+        self, tipo: str, version: str, mercado: str, idioma: str
+    ) -> DocumentoLegal:
+        return await self._documentos.obtener_version(tipo, version, mercado, idioma)

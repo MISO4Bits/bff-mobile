@@ -16,7 +16,9 @@ from app.logging_utils import SinRuidoDeHealthCheck
 from app.services import (
     CotizacionesService,
     CreditosHipotecariosService,
+    DocumentosLegalesService,
     EvidenciasIdentidadService,
+    PolizasService,
     SesionService,
 )
 from app.telemetry import agregar_encabezado_trace_id, setup_telemetry, shutdown_telemetry
@@ -37,6 +39,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     evidencias = EvidenciasIdentidadService(deps.evidencias, max_bytes=settings.evidencia_max_bytes)
+    polizas = PolizasService(deps.polizas)
+    documentos_legales = DocumentosLegalesService(deps.documentos_legales)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -53,6 +57,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.creditos = creditos
     app.state.cotizaciones = cotizaciones
     app.state.evidencias = evidencias
+    app.state.polizas = polizas
+    app.state.documentos_legales = documentos_legales
     app.state.sessions = deps.sessions
 
     install_error_handlers(app)

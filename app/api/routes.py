@@ -9,6 +9,7 @@ from fastapi import (
     File,
     Form,
     Header,
+    Path,
     Query,
     Request,
     Response,
@@ -17,21 +18,32 @@ from fastapi import (
 )
 
 from app.api.schemas import (
+    PATRON_IDIOMA,
+    PATRON_VERSION,
     CotizacionOut,
     CotizacionRequest,
     CredencialesRequest,
     CreditosHipotecariosOut,
+    DocumentoLegalOut,
+    DocumentoPolizaOut,
     EstadoEvidenciaOut,
+    EstadoPoliza,
     EvidenciaSubidaOut,
+    PolizaOut,
     RefrescoRequest,
     SesionOut,
+    SolicitarPolizaRequest,
+    TipoDocumentoLegal,
     TipoEvidencia,
 )
 from app.domain import Claims, CotizacionInput, DatosCreditoInput, NoAutorizado
+from app.logging_utils import sanear_para_log
 from app.services import (
     CotizacionesService,
     CreditosHipotecariosService,
+    DocumentosLegalesService,
     EvidenciasIdentidadService,
+    PolizasService,
     SesionService,
 )
 
@@ -58,6 +70,24 @@ def get_cotizaciones(request: Request) -> CotizacionesService:
 
 
 CotizacionesDep = Annotated[CotizacionesService, Depends(get_cotizaciones)]
+
+
+def get_documentos_legales(request: Request) -> DocumentosLegalesService:
+    return request.app.state.documentos_legales
+
+
+DocumentosLegalesDep = Annotated[DocumentosLegalesService, Depends(get_documentos_legales)]
+
+MercadoQuery = Annotated[Literal["CO"], Query()]
+IdiomaQuery = Annotated[str, Query(pattern=PATRON_IDIOMA)]
+CACHE_VERSION_INMUTABLE = "public, max-age=31536000, immutable"
+
+
+def get_polizas(request: Request) -> PolizasService:
+    return request.app.state.polizas
+
+
+PolizasDep = Annotated[PolizasService, Depends(get_polizas)]
 
 
 def get_evidencias(request: Request) -> EvidenciasIdentidadService:
@@ -214,3 +244,119 @@ async def estado_mis_evidencias(
     items = await service.estado(claims.cliente_id)
     response.headers["Cache-Control"] = "no-store"
     return [EstadoEvidenciaOut.model_validate(i) for i in items]
+
+
+REINTENTO_DOCUMENTO_S = 2
+
+
+@router.post(
+    "/cuenta/polizas",
+    response_model=PolizaOut,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Pólizas"],
+)
+async def solicitar_mi_poliza(
+    payload: SolicitarPolizaRequest, claims: ClaimsDep, service: PolizasDep, response: Response
+) -> PolizaOut:
+    logger.info("POST /v1/cuenta/polizas: solicitud recibida cliente_id=%s", claims.cliente_id)
+    poliza, creada = await service.solicitar(
+        claims.cliente_id, payload.model_dump(by_alias=True, mode="json")
+    )
+    if not creada:
+        response.status_code = status.HTTP_200_OK
+    response.headers["Cache-Control"] = "no-store"
+    return PolizaOut.model_validate(poliza)
+
+
+@router.get("/cuenta/polizas", response_model=list[PolizaOut], tags=["Pólizas"])
+async def listar_mis_polizas(
+    claims: ClaimsDep,
+    service: PolizasDep,
+    response: Response,
+    estado: Annotated[EstadoPoliza | None, Query()] = None,
+) -> list[PolizaOut]:
+    logger.info("GET /v1/cuenta/polizas: solicitud recibida cliente_id=%s", claims.cliente_id)
+    response.headers["Cache-Control"] = "no-store"
+    return [PolizaOut.model_validate(p) for p in await service.listar(claims.cliente_id, estado)]
+
+
+@router.get("/cuenta/polizas/{poliza_id}", response_model=PolizaOut, tags=["Pólizas"])
+async def obtener_mi_poliza(
+    poliza_id: Annotated[str, Path(min_length=1, max_length=64)],
+    claims: ClaimsDep,
+    service: PolizasDep,
+    response: Response,
+) -> PolizaOut:
+    logger.info(
+        "GET /v1/cuenta/polizas/%s: solicitud recibida cliente_id=%s",
+        sanear_para_log(poliza_id),
+        claims.cliente_id,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return PolizaOut.model_validate(await service.obtener(claims.cliente_id, poliza_id))
+
+
+@router.get(
+    "/cuenta/polizas/{poliza_id}/documento",
+    response_model=DocumentoPolizaOut,
+    tags=["Pólizas"],
+)
+async def documento_de_mi_poliza(
+    poliza_id: Annotated[str, Path(min_length=1, max_length=64)],
+    claims: ClaimsDep,
+    service: PolizasDep,
+    response: Response,
+) -> DocumentoPolizaOut:
+    logger.info(
+        "GET /v1/cuenta/polizas/%s/documento: solicitud recibida cliente_id=%s",
+        sanear_para_log(poliza_id),
+        claims.cliente_id,
+    )
+    cuerpo, listo = await service.documento(claims.cliente_id, poliza_id)
+    if not listo:
+        response.status_code = status.HTTP_202_ACCEPTED
+        response.headers["Retry-After"] = str(REINTENTO_DOCUMENTO_S)
+    response.headers["Cache-Control"] = "no-store"
+    return DocumentoPolizaOut.model_validate(cuerpo)
+
+
+@router.get(
+    "/documentos-legales",
+    response_model=list[DocumentoLegalOut],
+    response_model_exclude_none=True,
+    tags=["Documentos legales"],
+)
+async def listar_documentos_legales(
+    service: DocumentosLegalesDep,
+    mercado: MercadoQuery,
+    idioma: IdiomaQuery = "es-CO",
+    tipo: Annotated[TipoDocumentoLegal | None, Query()] = None,
+) -> list[DocumentoLegalOut]:
+    logger.info("GET /v1/documentos-legales: solicitud recibida mercado=%s tipo=%s", mercado, tipo)
+    documentos = await service.listar_vigentes(mercado, idioma, tipo)
+    return [DocumentoLegalOut.model_validate(d) for d in documentos]
+
+
+@router.get(
+    "/documentos-legales/{tipo}/versiones/{version}",
+    response_model=DocumentoLegalOut,
+    response_model_exclude_none=True,
+    tags=["Documentos legales"],
+)
+async def obtener_version_documento_legal(
+    tipo: TipoDocumentoLegal,
+    version: Annotated[str, Path(pattern=PATRON_VERSION)],
+    service: DocumentosLegalesDep,
+    response: Response,
+    mercado: MercadoQuery,
+    idioma: IdiomaQuery = "es-CO",
+) -> DocumentoLegalOut:
+    logger.info(
+        "GET /v1/documentos-legales/%s/versiones/%s: solicitud recibida mercado=%s",
+        tipo,
+        version,
+        mercado,
+    )
+    documento = await service.obtener_version(tipo, version, mercado, idioma)
+    response.headers["Cache-Control"] = CACHE_VERSION_INMUTABLE
+    return DocumentoLegalOut.model_validate(documento)

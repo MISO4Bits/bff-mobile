@@ -15,11 +15,13 @@ from app.domain import (
     ESTADO_DISPONIBLE,
     ClienteCore,
     CoberturaPrecio,
+    Conflicto,
     Cotizacion,
     CotizacionInput,
     CreditosReportados,
     DatosCreditoInput,
     Desglose,
+    DocumentoLegal,
     EntidadFinanciera,
     EstadoEvidenciaTipo,
     HipotecaReportada,
@@ -234,3 +236,196 @@ class FakeCotizacion:
     async def eliminar_cotizacion_activa(self, cliente_id: str) -> None:
         if self._activas.pop(cliente_id, None) is None:
             raise RecursoNoEncontrado("El cliente no tiene una cotización activa")
+
+
+class FakePolizas:
+    """Pólizas en memoria con la forma que entrega svc-core. ``pendientes`` define qué falta:
+    vacío, la póliza sale emitida; si no, ``PENDIENTE`` con esos códigos."""
+
+    _PRECIOS = {"VIDA": (140000000, 24696, 0), "HOGAR": (150000000, 14850, 2822)}
+    _MENSAJES = {
+        "CORREO_SIN_CONFIRMAR": ("USUARIO", "Confirma tu cuenta con el enlace que enviamos."),
+        "EVIDENCIA_FALTANTE": ("USUARIO", "Sube la evidencia de identidad que falta."),
+        "EVIDENCIA_EN_REVISION": ("AGENTE", "Un agente está revisando tus documentos."),
+        "CREDITO_NO_VERIFICADO": ("AGENTE", "Un agente debe verificar los datos de tu crédito."),
+    }
+
+    def __init__(self, pendientes: tuple[str, ...] = ()) -> None:
+        self.pendientes = pendientes
+        self.documento_listo = True
+        self.llamadas: list[tuple] = []
+        self._polizas: dict[str, dict] = {}
+
+    def _poliza(self, cliente_id: str, cuerpo: dict) -> dict:
+        ahora = datetime.now(UTC).isoformat()
+        coberturas = [
+            {
+                "codigo": codigo,
+                "obligatoria": codigo == "VIDA",
+                "sumaAsegurada": self._PRECIOS[codigo][0],
+                "primaNeta": self._PRECIOS[codigo][1],
+                "iva": self._PRECIOS[codigo][2],
+                "primaTotal": self._PRECIOS[codigo][1] + self._PRECIOS[codigo][2],
+            }
+            for codigo in ("VIDA", "HOGAR")
+            if codigo in cuerpo["coberturas"]
+        ]
+        emitida = not self.pendientes
+        return {
+            "polizaId": str(uuid.uuid4()),
+            "clienteId": cliente_id,
+            "numero": "SOL-VH-2026-FAKE01" if emitida else None,
+            "estado": "EMITIDA" if emitida else "PENDIENTE",
+            "producto": "VIDA_HIPOTECARIO",
+            "creadaEn": ahora,
+            "emitidaEn": ahora if emitida else None,
+            "solicitudVigenteHasta": None if emitida else ahora,
+            "vigencia": {"desde": ahora, "hasta": ahora} if emitida else None,
+            "coberturas": coberturas,
+            "primaTotalMensual": sum(c["primaTotal"] for c in coberturas),
+            "moneda": "COP",
+            "datosCredito": {
+                "valorCredito": 150000000,
+                "plazoRestanteMeses": 240,
+                "entidadAcreedora": "Bancolombia",
+                "saldoInsoluto": 140000000,
+            },
+            "origenDatos": "CONFIRMADO",
+            "cotizacionCreadaEn": cuerpo["cotizacionCreadaEn"],
+            "pendientes": [
+                {"codigo": c, "tipo": self._MENSAJES[c][0], "mensaje": self._MENSAJES[c][1]}
+                for c in self.pendientes
+            ],
+            "documento": {"estado": "DISPONIBLE" if emitida else "NO_DISPONIBLE"},
+            "documentosAceptados": [
+                {**d, "aceptadoEn": ahora} for d in cuerpo["documentosAceptados"]
+            ],
+            "rechazo": None,
+        }
+
+    async def solicitar(self, cliente_id: str, cuerpo: dict) -> tuple[dict, bool]:
+        self.llamadas.append(("solicitar", cliente_id, cuerpo))
+        for existente in self._polizas.values():
+            if (
+                existente["clienteId"] == cliente_id
+                and existente["cotizacionCreadaEn"] == cuerpo["cotizacionCreadaEn"]
+            ):
+                return existente, False
+        poliza = self._poliza(cliente_id, cuerpo)
+        self._polizas[poliza["polizaId"]] = poliza
+        return poliza, True
+
+    async def listar(self, cliente_id: str, estado: str | None) -> list[dict]:
+        return [
+            p
+            for p in self._polizas.values()
+            if p["clienteId"] == cliente_id and (estado is None or p["estado"] == estado)
+        ]
+
+    async def obtener(self, cliente_id: str, poliza_id: str) -> dict:
+        poliza = self._polizas.get(poliza_id)
+        if poliza is None or poliza["clienteId"] != cliente_id:
+            raise RecursoNoEncontrado("Póliza no encontrada")
+        return poliza
+
+    async def documento(self, cliente_id: str, poliza_id: str) -> tuple[dict, bool]:
+        poliza = await self.obtener(cliente_id, poliza_id)
+        if poliza["estado"] != "EMITIDA":
+            raise Conflicto("La póliza todavía no está emitida", codigo="POLIZA_NO_EMITIDA")
+        if not self.documento_listo:
+            return {"estado": "GENERANDO", "url": None, "expiraEn": None}, False
+        return {
+            "estado": "LISTO",
+            "url": f"http://documentos.local/{poliza['numero']}.pdf",
+            "expiraEn": datetime.now(UTC).isoformat(),
+        }, True
+
+
+_DOCUMENTOS_LEGALES_DE_EJEMPLO = (
+    DocumentoLegal(
+        tipo="terminos",
+        version="V1",
+        titulo="Términos y condiciones",
+        subtitulo="Las reglas de uso de Solventa. Está corto a propósito.",
+        base_legal="Ley 527 de 1999",
+        contenido=(
+            "<h3>1 · Quién te presta el servicio</h3>"
+            "<p>Solventa Colombia S.A.S. Somos intermediarios de seguros.</p>"
+            "<h3>2 · Tu firma electrónica</h3>"
+            "<p>Cuando aceptas desde tu cuenta, esa aceptación vale como tu firma.</p>"
+        ),
+        nota_pie="Aceptar estos términos no te compromete a comprar.",
+    ),
+    DocumentoLegal(
+        tipo="open-data",
+        version="V1",
+        titulo="Tratamiento de datos personales",
+        subtitulo="Qué datos tuyos usamos y para qué. Ley 1581 de 2012.",
+        base_legal="Ley 1581 de 2012",
+        contenido=(
+            "<h3>1 · Qué datos recogemos</h3>"
+            "<p>Tu nombre, documento, fecha de nacimiento, correo y celular.</p>"
+            "<h3>2 · Tus derechos</h3>"
+            "<p>Conocer, actualizar, corregir y borrar tus datos, o revocar esta autorización.</p>"
+        ),
+        nota_pie="Por ley del sector conservamos tu información mientras tengas póliza.",
+    ),
+    DocumentoLegal(
+        tipo="open-finance",
+        version="V1",
+        titulo="Consulta en centrales de riesgo",
+        subtitulo="Es opcional. Si la das, tu precio puede bajar.",
+        base_legal="Ley 1266 de 2008",
+        contenido=(
+            "<h3>1 · Qué autorizas</h3>"
+            "<p>Consultar y reportar tu comportamiento crediticio ante los operadores.</p>"
+            "<h3>2 · Puedes retirarla</h3>"
+            "<p>Quitas esta autorización cuando quieras desde tu perfil.</p>"
+        ),
+        nota_pie="Es opcional. Si no la autorizas puedes seguir igual.",
+    ),
+    DocumentoLegal(
+        tipo="poliza",
+        version="V1",
+        titulo="Condiciones de tu póliza",
+        subtitulo="Lo que contratas, en pocas líneas. Léelo antes de solicitar.",
+        base_legal="Código de Comercio (contrato de seguro) y Ley 527 de 1999",
+        contenido=(
+            "<h3>1 · Qué contratas</h3>"
+            "<p>Un seguro de vida deudores asociado a tu crédito de vivienda.</p>"
+            "<h3>2 · Tu firma electrónica</h3>"
+            "<p>Al aceptar desde tu cuenta, esa aceptación vale como tu firma.</p>"
+        ),
+        nota_pie="Solicitar la póliza no te cobra nada todavía.",
+    ),
+)
+
+
+class FakeDocumentosLegales:
+    """Textos de ejemplo abreviados (mercado ``CO``, idioma ``es-CO``) para correr
+    el BFF standalone. Los textos reales viven en svc-productos."""
+
+    def __init__(self, documentos: tuple[DocumentoLegal, ...] = _DOCUMENTOS_LEGALES_DE_EJEMPLO):
+        self._documentos = documentos
+
+    @staticmethod
+    def _hay_textos(mercado: str, idioma: str) -> bool:
+        return (mercado, idioma) == ("CO", "es-CO")
+
+    async def listar_vigentes(
+        self, mercado: str, idioma: str, tipo: str | None = None
+    ) -> list[DocumentoLegal]:
+        if not self._hay_textos(mercado, idioma):
+            return []
+        if tipo is not None:
+            return [d for d in self._documentos if d.tipo == tipo]
+        return [d for d in self._documentos if d.tipo != "poliza"]
+
+    async def obtener_version(
+        self, tipo: str, version: str, mercado: str, idioma: str
+    ) -> DocumentoLegal:
+        if self._hay_textos(mercado, idioma):
+            for documento in self._documentos:
+                if (documento.tipo, documento.version) == (tipo, version):
+                    return documento
+        raise RecursoNoEncontrado("Documento legal no encontrado")

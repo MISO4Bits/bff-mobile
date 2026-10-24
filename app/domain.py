@@ -210,11 +210,17 @@ class BffError(Exception):
     title = "Error interno"
 
     def __init__(
-        self, detail: str | None = None, *, errores: list[dict[str, str]] | None = None
+        self,
+        detail: str | None = None,
+        *,
+        errores: list[dict[str, str]] | None = None,
+        codigo: str | None = None,
     ) -> None:
         super().__init__(detail or self.title)
         self.detail = detail
         self.errores = errores
+        # Código estable del error (p. ej. COTIZACION_CAMBIO) para que el cliente decida qué hacer.
+        self.codigo = codigo
 
 
 class SolicitudInvalida(BffError):
@@ -245,3 +251,26 @@ class ReglaNegocio(BffError):
 class DependenciaNoDisponible(BffError):
     status = 503
     title = "Dependencia no disponible"
+
+
+class Prohibido(BffError):
+    status = 403
+    title = "Acceso denegado"
+
+
+class Conflicto(BffError):
+    status = 409
+    title = "Conflicto"
+
+
+@dataclass(frozen=True)
+class DocumentoLegal:
+    """Texto legal tal cual lo publica Productos y Configuración de Mercado."""
+
+    tipo: str
+    version: str
+    titulo: str
+    base_legal: str
+    contenido: str
+    subtitulo: str | None = None
+    nota_pie: str | None = None
