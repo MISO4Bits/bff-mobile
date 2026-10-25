@@ -13,9 +13,11 @@ from app.adapters.fakes import (
     FakeCoreIdentity,
     FakeCotizacion,
     FakeCreditosHipotecarios,
+    FakeDocumentosLegales,
     FakeEntidadesFinancieras,
     FakeEvidencias,
     FakeIdentityProvider,
+    FakePolizas,
 )
 from app.adapters.identity_platform import IdentityPlatformAdapter
 from app.adapters.perfilamiento_client import PerfilamientoClientAdapter
@@ -26,9 +28,11 @@ from app.ports import (
     CoreIdentityPort,
     CotizacionPort,
     CreditosHipotecariosPort,
+    DocumentosLegalesPort,
     EntidadesFinancierasPort,
     EvidenciasIdentidadPort,
     IdentityProviderPort,
+    PolizasPort,
 )
 from app.resilience import ResilientHttpClient, build_breaker
 from app.security import SessionIssuer
@@ -44,6 +48,8 @@ class Dependencias:
     cotizacion: CotizacionPort
     # En modo http es el mismo adaptador que ``core``: se cierra una sola vez.
     evidencias: EvidenciasIdentidadPort
+    polizas: PolizasPort
+    documentos_legales: DocumentosLegalesPort
 
     async def aclose(self) -> None:
         for adapter in (self.identity, self.core, self.creditos, self.entidades, self.cotizacion):
@@ -104,6 +110,8 @@ def build_dependencias(settings: Settings) -> Dependencias:
             FakeEntidadesFinancieras(),
             FakeCotizacion(),
             FakeEvidencias(),
+            FakePolizas(),
+            FakeDocumentosLegales(),
         )
 
     if settings.adapters == "http":
@@ -112,6 +120,12 @@ def build_dependencias(settings: Settings) -> Dependencias:
             timeout_subida=httpx.Timeout(
                 settings.evidencias_timeout_seconds, pool=settings.http_pool_timeout_seconds
             ),
+            timeout_polizas=httpx.Timeout(
+                settings.polizas_timeout_seconds, pool=settings.http_pool_timeout_seconds
+            ),
+        )
+        productos = ProductosClientAdapter(
+            _cliente_http(settings, settings.productos_base_url, "svc-productos")
         )
         return Dependencias(
             IdentityPlatformAdapter(
@@ -123,13 +137,13 @@ def build_dependencias(settings: Settings) -> Dependencias:
             PerfilamientoClientAdapter(
                 _cliente_http(settings, settings.perfilamiento_base_url, "svc-perfilamiento")
             ),
-            ProductosClientAdapter(
-                _cliente_http(settings, settings.productos_base_url, "svc-productos")
-            ),
+            productos,
             CotizacionClientAdapter(
                 _cliente_http(settings, settings.cotizacion_base_url, "svc-cotizacion")
             ),
             core,
+            core,
+            productos,
         )
 
     raise ValueError(f"adapters no soportado: {settings.adapters}")

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 import jwt
 import pytest_asyncio
+from jsonschema import Draft202012Validator
 
+from app.adapters.fakes import FakeCotizacion
 from tests.conftest import CREDENCIALES_DEMO
 
 SOLICITUD = {
@@ -116,3 +119,31 @@ async def test_una_sesion_sin_fecha_de_nacimiento_pide_iniciar_sesion_de_nuevo(c
     )
 
     assert resp.status_code == 401
+
+
+class _CotizacionConfirmada(FakeCotizacion):
+    """Cotización cuyo crédito coincide con una hipoteca de Open Finance (BITS-101)."""
+
+    async def crear_cotizacion(self, cliente_id, edad, entrada):
+        cotizacion = replace(
+            await super().crear_cotizacion(cliente_id, edad, entrada), origen_datos="CONFIRMADO"
+        )
+        self._activas[cliente_id] = cotizacion
+        return cotizacion
+
+
+async def test_una_cotizacion_confirmada_se_devuelve_con_su_origen(
+    client, autenticado, app, openapi_spec
+):
+    headers = autenticado
+    app.state.cotizaciones._cotizacion = _CotizacionConfirmada()
+
+    creada = await client.post("/v1/cotizaciones", headers=headers, json=SOLICITUD)
+    activa = await client.get("/v1/cotizaciones/actual", headers=headers)
+
+    assert creada.status_code == 201
+    assert creada.json()["origenDatos"] == "CONFIRMADO"
+    assert activa.status_code == 200
+    assert activa.json()["origenDatos"] == "CONFIRMADO"
+    esquema = {"$ref": "#/components/schemas/Cotizacion", "components": openapi_spec["components"]}
+    assert not list(Draft202012Validator(esquema).iter_errors(creada.json()))

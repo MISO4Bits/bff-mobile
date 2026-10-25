@@ -42,6 +42,12 @@ def test_contrato_y_codigo_exponen_las_mismas_operaciones(app, openapi_spec):
         ("DELETE", "/v1/cotizaciones/actual"),
         ("POST", "/v1/cuenta/evidencias-identidad"),
         ("GET", "/v1/cuenta/evidencias-identidad"),
+        ("POST", "/v1/cuenta/polizas"),
+        ("GET", "/v1/cuenta/polizas"),
+        ("GET", "/v1/cuenta/polizas/{}"),
+        ("GET", "/v1/cuenta/polizas/{}/documento"),
+        ("GET", "/v1/documentos-legales"),
+        ("GET", "/v1/documentos-legales/{}/versiones/{}"),
     }
 
 
