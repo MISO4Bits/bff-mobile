@@ -13,6 +13,7 @@ from app.adapters.fakes import (
     FakeCoreIdentity,
     FakeCotizacion,
     FakeCreditosHipotecarios,
+    FakeDispositivos,
     FakeDocumentosLegales,
     FakeEntidadesFinancieras,
     FakeEvidencias,
@@ -28,6 +29,7 @@ from app.ports import (
     CoreIdentityPort,
     CotizacionPort,
     CreditosHipotecariosPort,
+    DispositivosPort,
     DocumentosLegalesPort,
     EntidadesFinancierasPort,
     EvidenciasIdentidadPort,
@@ -50,6 +52,8 @@ class Dependencias:
     evidencias: EvidenciasIdentidadPort
     polizas: PolizasPort
     documentos_legales: DocumentosLegalesPort
+    # En modo http es el mismo adaptador que ``core``.
+    dispositivos: DispositivosPort
 
     async def aclose(self) -> None:
         for adapter in (self.identity, self.core, self.creditos, self.entidades, self.cotizacion):
@@ -112,6 +116,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             FakeEvidencias(),
             FakePolizas(),
             FakeDocumentosLegales(),
+            FakeDispositivos(),
         )
 
     if settings.adapters == "http":
@@ -144,6 +149,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             core,
             core,
             productos,
+            core,
         )
 
     raise ValueError(f"adapters no soportado: {settings.adapters}")

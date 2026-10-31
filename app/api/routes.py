@@ -24,6 +24,7 @@ from app.api.schemas import (
     CotizacionRequest,
     CredencialesRequest,
     CreditosHipotecariosOut,
+    DispositivoOut,
     DocumentoLegalOut,
     DocumentoPolizaOut,
     EstadoEvidenciaOut,
@@ -31,6 +32,7 @@ from app.api.schemas import (
     EvidenciaSubidaOut,
     PolizaOut,
     RefrescoRequest,
+    RegistrarDispositivoRequest,
     SesionOut,
     SolicitarPolizaRequest,
     TipoDocumentoLegal,
@@ -41,6 +43,7 @@ from app.logging_utils import sanear_para_log
 from app.services import (
     CotizacionesService,
     CreditosHipotecariosService,
+    DispositivosService,
     DocumentosLegalesService,
     EvidenciasIdentidadService,
     PolizasService,
@@ -88,6 +91,13 @@ def get_polizas(request: Request) -> PolizasService:
 
 
 PolizasDep = Annotated[PolizasService, Depends(get_polizas)]
+
+
+def get_dispositivos(request: Request) -> DispositivosService:
+    return request.app.state.dispositivos
+
+
+DispositivosDep = Annotated[DispositivosService, Depends(get_dispositivos)]
 
 
 def get_evidencias(request: Request) -> EvidenciasIdentidadService:
@@ -318,6 +328,41 @@ async def documento_de_mi_poliza(
         response.headers["Retry-After"] = str(REINTENTO_DOCUMENTO_S)
     response.headers["Cache-Control"] = "no-store"
     return DocumentoPolizaOut.model_validate(cuerpo)
+
+
+@router.put("/cuenta/dispositivos", response_model=DispositivoOut, tags=["Avisos"])
+async def registrar_mi_dispositivo(
+    payload: RegistrarDispositivoRequest,
+    claims: ClaimsDep,
+    service: DispositivosDep,
+    response: Response,
+) -> DispositivoOut:
+    # Nunca se escribe el token: identifica al teléfono.
+    logger.info("PUT /v1/cuenta/dispositivos: solicitud recibida cliente_id=%s", claims.cliente_id)
+    dispositivo = await service.registrar(
+        claims.cliente_id, payload.model_dump(by_alias=True, mode="json")
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return DispositivoOut.model_validate(dispositivo)
+
+
+@router.delete(
+    "/cuenta/dispositivos/{dispositivo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Avisos"],
+)
+async def quitar_mi_dispositivo(
+    dispositivo_id: Annotated[str, Path(min_length=1, max_length=64)],
+    claims: ClaimsDep,
+    service: DispositivosDep,
+) -> Response:
+    logger.info(
+        "DELETE /v1/cuenta/dispositivos/%s: solicitud recibida cliente_id=%s",
+        sanear_para_log(dispositivo_id),
+        claims.cliente_id,
+    )
+    await service.quitar(claims.cliente_id, dispositivo_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

@@ -66,6 +66,13 @@ sale de la sesión. El BFF no decide nada: reenvía la foto y descarta de entrad
 Con `MOBILE_ADAPTERS=fake` el veredicto siempre es `ACEPTADA`; para ver los demás estados, correr contra svc-core con
 `CORE_VERIFICADOR_BACKEND=mock` y `CORE_VERIFICADOR_MOCK_SECUENCIA` (ver el README de svc-core).
 
+### Dispositivos para avisos push (BITS-229)
+
+`PUT /v1/cuenta/dispositivos` (`{token, plataforma: "android", versionApp}`) registra el teléfono y
+devuelve `{dispositivoId}`; `DELETE /v1/cuenta/dispositivos/{dispositivoId}` lo da de baja (`204`,
+idempotente). El `clienteId` sale de la sesión y svc-core guarda los tokens. Ambas se reintentan
+como las lecturas porque son idempotentes. El token no se escribe en los logs.
+
 ## Pruebas
 
 ```bash

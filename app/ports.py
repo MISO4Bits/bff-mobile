@@ -99,3 +99,16 @@ class DocumentosLegalesPort(Protocol):
     async def obtener_version(
         self, tipo: str, version: str, mercado: str, idioma: str
     ) -> DocumentoLegal: ...
+
+
+@runtime_checkable
+class DispositivosPort(Protocol):
+    """Dispositivos del cliente para avisos push, guardados en svc-core (BITS-229)."""
+
+    async def registrar_dispositivo(self, cliente_id: str, cuerpo: dict) -> dict:
+        """Registra o actualiza el token. Devuelve ``{"dispositivoId": ...}``. Idempotente."""
+        ...
+
+    async def quitar_dispositivo(self, cliente_id: str, dispositivo_id: str) -> None:
+        """Idempotente: quitar uno que ya no existe no es un error."""
+        ...

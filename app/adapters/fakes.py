@@ -429,3 +429,18 @@ class FakeDocumentosLegales:
                 if (documento.tipo, documento.version) == (tipo, version):
                     return documento
         raise RecursoNoEncontrado("Documento legal no encontrado")
+
+
+class FakeDispositivos:
+    """Dispositivos en memoria con la forma que entrega svc-core: el mismo token da el mismo id."""
+
+    def __init__(self) -> None:
+        self.llamadas: list[tuple] = []
+        self._ids: dict[str, str] = {}
+
+    async def registrar_dispositivo(self, cliente_id: str, cuerpo: dict) -> dict:
+        self.llamadas.append(("registrar", cliente_id, cuerpo))
+        return {"dispositivoId": self._ids.setdefault(cuerpo["token"], str(uuid.uuid4()))}
+
+    async def quitar_dispositivo(self, cliente_id: str, dispositivo_id: str) -> None:
+        self.llamadas.append(("quitar", cliente_id, dispositivo_id))
