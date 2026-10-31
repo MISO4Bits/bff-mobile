@@ -284,3 +284,16 @@ class DocumentoLegalOut(_Model):
     base_legal: str
     contenido: str
     nota_pie: str | None = None
+
+
+# --- dispositivos para avisos push (BITS-229) ---
+
+
+class RegistrarDispositivoRequest(_Model):
+    token: str = Field(min_length=8, max_length=4096, pattern=r"^\S+$")
+    plataforma: Literal["android"]
+    version_app: str = Field(min_length=1, max_length=32)
+
+
+class DispositivoOut(_Model):
+    dispositivo_id: str

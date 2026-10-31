@@ -33,6 +33,7 @@ from app.ports import (
     CoreIdentityPort,
     CotizacionPort,
     CreditosHipotecariosPort,
+    DispositivosPort,
     DocumentosLegalesPort,
     EntidadesFinancierasPort,
     EvidenciasIdentidadPort,
@@ -238,6 +239,20 @@ class PolizasService:
 
     async def documento(self, cliente_id: str, poliza_id: str) -> tuple[dict, bool]:
         return await self._polizas.documento(cliente_id, poliza_id)
+
+
+class DispositivosService:
+    """Dispositivos para avisos push. svc-core es el dueño del cliente y guarda los tokens; aquí
+    solo se pasan las llamadas con el ``clienteId`` del token."""
+
+    def __init__(self, dispositivos: DispositivosPort) -> None:
+        self._dispositivos = dispositivos
+
+    async def registrar(self, cliente_id: str, cuerpo: dict) -> dict:
+        return await self._dispositivos.registrar_dispositivo(cliente_id, cuerpo)
+
+    async def quitar(self, cliente_id: str, dispositivo_id: str) -> None:
+        await self._dispositivos.quitar_dispositivo(cliente_id, dispositivo_id)
 
 
 class DocumentosLegalesService:

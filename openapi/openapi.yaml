@@ -38,6 +38,8 @@ tags:
     description: Cédula por ambas caras y selfie previas a la firma. Una foto por request; el servidor decide si sirve.
   - name: Pólizas
     description: Solicitud, consulta y documento de mis pólizas (BITS-101).
+  - name: Avisos
+    description: Registro del teléfono para recibir avisos push (BITS-229).
   - name: Documentos legales
     description: Textos legales vigentes (registro y condiciones de la póliza). Públicos.
 security: []
@@ -513,6 +515,65 @@ paths:
           $ref: '#/components/responses/NoDisponible'
       security:
       - clienteAuth: []
+
+  /v1/cuenta/dispositivos:
+    put:
+      operationId: registrarMiDispositivo
+      tags: [Avisos]
+      summary: Registra mi teléfono para recibir avisos push
+      description: |
+        La app lo llama cuando hay sesión y el permiso de notificaciones está concedido: al
+        arrancar, al iniciar sesión y cada vez que Firebase le entrega un token nuevo. El cliente
+        final no hace ningún paso: aceptar el permiso basta.
+
+        **Idempotente.** Repetir el mismo `token` devuelve el mismo `dispositivoId`. Si el token
+        ya estaba registrado con otro cliente (teléfono compartido), pasa a este. Cada cliente
+        conserva como máximo 5 dispositivos; al registrar uno más se descarta el que lleva más
+        tiempo sin verse.
+
+        La app guarda el `dispositivoId` para darlo de baja al cerrar sesión. El `clienteId` sale
+        de la sesión.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrarDispositivoRequest' }
+      responses:
+        '200':
+          description: Dispositivo registrado.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dispositivo' }
+        '400': { $ref: '#/components/responses/SolicitudInvalida' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '503': { $ref: '#/components/responses/DependenciaNoDisponible' }
+      security:
+        - clienteAuth: []
+
+  /v1/cuenta/dispositivos/{dispositivoId}:
+    parameters:
+      - name: dispositivoId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      operationId: quitarMiDispositivo
+      tags: [Avisos]
+      summary: Da de baja mi teléfono de los avisos push
+      description: |
+        La app lo llama antes de cerrar sesión, sin bloquear el cierre: si no hay red, el cierre
+        sigue igual. **Idempotente:** si el dispositivo ya no existe responde igual `204`.
+      responses:
+        '204':
+          description: El teléfono ya no recibe avisos de este cliente.
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '503': { $ref: '#/components/responses/DependenciaNoDisponible' }
+      security:
+        - clienteAuth: []
 
   /v1/documentos-legales:
     get:
@@ -1547,3 +1608,30 @@ components:
           errores:
             - campo: body.email
               mensaje: String should match pattern '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+
+    RegistrarDispositivoRequest:
+      type: object
+      additionalProperties: false
+      required: [token, plataforma, versionApp]
+      properties:
+        token:
+          type: string
+          minLength: 8
+          maxLength: 4096
+          pattern: ^\S+$
+          description: Token de Firebase Cloud Messaging de esta instalación de la app.
+        plataforma:
+          type: string
+          enum: [android]
+        versionApp:
+          type: string
+          minLength: 1
+          maxLength: 32
+          examples: ['1.0.0']
+
+    Dispositivo:
+      type: object
+      additionalProperties: false
+      required: [dispositivoId]
+      properties:
+        dispositivoId: { type: string, format: uuid }

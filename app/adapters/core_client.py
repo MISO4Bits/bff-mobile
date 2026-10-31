@@ -153,6 +153,27 @@ class CoreClientAdapter:
         _asegurar_poliza_ok(resp)
         return resp.json(), resp.status_code == 200
 
+    # --- dispositivos para avisos push (BITS-229) ---
+    # Ambas son idempotentes, así que se reintentan como las lecturas.
+
+    async def registrar_dispositivo(self, cliente_id: str, cuerpo: dict) -> dict:
+        resp = await self._http.request("PUT", f"{CLIENTES}/{cliente_id}/dispositivos", json=cuerpo)
+        _asegurar_poliza_ok(resp)
+        datos = resp.json()
+        logger.info(
+            "dispositivo registrado cliente_id=%s dispositivo_id=%s",
+            cliente_id,
+            sanear_para_log(datos["dispositivoId"]),
+        )
+        return datos
+
+    async def quitar_dispositivo(self, cliente_id: str, dispositivo_id: str) -> None:
+        resp = await self._http.request(
+            "DELETE", f"{CLIENTES}/{cliente_id}/dispositivos/{dispositivo_id}"
+        )
+        _asegurar_poliza_ok(resp)
+        logger.info("dispositivo quitado cliente_id=%s", cliente_id)
+
 
 _ERRORES_DE_POLIZA = {
     400: SolicitudInvalida,
