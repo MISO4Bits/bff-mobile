@@ -40,6 +40,8 @@ tags:
     description: Solicitud, consulta y documento de mis pólizas (BITS-101).
   - name: Avisos
     description: Registro del teléfono para recibir avisos push (BITS-229).
+  - name: Siniestros
+    description: Reporte de siniestros del cliente con evidencia tomada con la cámara (BITS-381).
   - name: Documentos legales
     description: Textos legales vigentes (registro y condiciones de la póliza). Públicos.
 security: []
@@ -515,6 +517,90 @@ paths:
           $ref: '#/components/responses/NoDisponible'
       security:
       - clienteAuth: []
+
+  /v1/cuenta/siniestros:
+    post:
+      operationId: reportarMiSiniestro
+      tags: [Siniestros]
+      summary: Reporta un siniestro con su evidencia
+      description: |
+        Es `multipart/form-data`. La parte `datos` (JSON) lleva la póliza, el tipo, la fecha, la
+        narración, el destino del pago y, por cada archivo, su clase y su ubicación. Las partes
+        `archivos` son las imágenes, en el **mismo orden** que `datos.archivos`. La ubicación de
+        cada foto viaja en `datos` y no en la foto, porque la app borra los metadatos al
+        recomprimirla; `latitud` y `longitud` son `null` si no hay permiso de ubicación.
+
+        Cada cobertura tiene su camino:
+
+        - Vida, `INCAPACIDAD_TOTAL`: al menos un `DOCUMENTO` (el dictamen). Sin `destinoPago`: se
+          paga al banco.
+        - Tu casa, `INCENDIO_TERREMOTO`: `narracion`, `destinoPago` y al menos una `FOTO`. Las
+          fotos se toman con la cámara, nunca de la galería.
+
+        **Idempotente con `Idempotency-Key`.** Si se cae la conexión, la app reintenta con la
+        misma llave y se crea un solo siniestro.
+
+        El siniestro queda `EN_ESTUDIO` con su `numero`, el radicado que ve el cliente. Solventa
+        guarda una sola vez el saldo del crédito, el de Open Finance o, si no responde, el de la
+        póliza. La fecha de ocurrencia se compara con la emisión de la póliza y con el fin de su
+        vigencia. El `clienteId` sale de la sesión.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [datos, archivos]
+              properties:
+                datos: { $ref: '#/components/schemas/ReportarSiniestroDatos' }
+                archivos:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items: { type: string, format: binary }
+            encoding:
+              datos: { contentType: application/json }
+              archivos: { contentType: 'image/jpeg, image/png' }
+      responses:
+        '201':
+          description: Siniestro radicado, `EN_ESTUDIO`.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiniestroReportado' }
+        '400':
+          description: |
+            Reporte inválido (`errores[].campo`) o `TIPO_NO_CUBIERTO`: es `INCENDIO_TERREMOTO` y la
+            póliza no tiene la cobertura `HOGAR`. Falta la narración, el destino del pago o la
+            evidencia, el destino llega en `INCAPACIDAD_TOTAL`, o una imagen no sirve.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemaSiniestro' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: |
+            `FUERA_DE_VIGENCIA`: la fecha es futura, anterior a la emisión o posterior al fin de la
+            vigencia, o la póliza no está `EMITIDA` ni `DESACTIVADA`. `SINIESTRO_EN_CURSO`: la
+            póliza ya tiene un siniestro de esa cobertura `EN_ESTUDIO` o `FALTA_INFORMACION`.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemaSiniestro' }
+        '413':
+          description: Una imagen supera el máximo permitido.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problema' }
+        '503': { $ref: '#/components/responses/DependenciaNoDisponible' }
+      security:
+        - clienteAuth: []
 
   /v1/cuenta/dispositivos:
     put:
@@ -1635,3 +1721,110 @@ components:
       required: [dispositivoId]
       properties:
         dispositivoId: { type: string, format: uuid }
+
+    TipoSiniestro:
+      type: string
+      enum: [INCAPACIDAD_TOTAL, INCENDIO_TERREMOTO]
+      description: |
+        `INCAPACIDAD_TOTAL` es de la cobertura Vida (se paga al banco, sin destino) e
+        `INCENDIO_TERREMOTO` de Tu casa (`HOGAR`, con destino del pago y narración).
+
+    EstadoSiniestro:
+      type: string
+      enum: [EN_ESTUDIO, FALTA_INFORMACION, PAGADO, RECHAZADO]
+
+    ArchivoReporte:
+      type: object
+      additionalProperties: false
+      required: [clase]
+      description: Datos de un archivo, en el mismo orden que las partes `archivos`.
+      properties:
+        clase: { type: string, enum: [FOTO, DOCUMENTO] }
+        capturadoEn: { type: string, format: date-time }
+        latitud:
+          type: [number, 'null']
+          minimum: -90
+          maximum: 90
+          description: '`null` si el cliente negó el permiso de ubicación.'
+        longitud:
+          type: [number, 'null']
+          minimum: -180
+          maximum: 180
+
+    DestinoPago:
+      description: Cómo recibe el pago el cliente. Se guarda tal como llega.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [tipo, banco, tipoCuenta, numeroCuenta]
+          properties:
+            tipo: { type: string, const: TRANSFERENCIA }
+            banco: { type: string, minLength: 1, maxLength: 100 }
+            tipoCuenta: { type: string, enum: [AHORROS, CORRIENTE] }
+            numeroCuenta: { type: string, pattern: '^[0-9]{4,20}$' }
+        - type: object
+          additionalProperties: false
+          required: [tipo, oficina]
+          properties:
+            tipo: { type: string, const: CHEQUE }
+            oficina:
+              type: object
+              additionalProperties: false
+              required: [id, banco, nombre, direccion]
+              properties:
+                id: { type: string, minLength: 1, maxLength: 64 }
+                banco: { type: string, minLength: 1, maxLength: 100 }
+                nombre: { type: string, minLength: 1, maxLength: 100 }
+                direccion: { type: string, minLength: 1, maxLength: 200 }
+
+    ReportarSiniestroDatos:
+      type: object
+      additionalProperties: false
+      required: [polizaId, tipo, fechaOcurrencia, archivos]
+      examples:
+        - polizaId: 7c1f6a4e-2b8d-4d3a-9a55-0e3b1f2c8d10
+          tipo: INCENDIO_TERREMOTO
+          fechaOcurrencia: '2026-11-10'
+          narracion: Se incendió la cocina
+          archivos:
+            - { clase: FOTO, capturadoEn: '2026-11-10T15:02:00Z', latitud: 4.65, longitud: -74.06 }
+          destinoPago: { tipo: TRANSFERENCIA, banco: Bancolombia, tipoCuenta: AHORROS, numeroCuenta: '48210012345' }
+      properties:
+        polizaId: { type: string, minLength: 1, maxLength: 64 }
+        tipo: { $ref: '#/components/schemas/TipoSiniestro' }
+        fechaOcurrencia: { type: string, format: date }
+        narracion:
+          type: string
+          maxLength: 4000
+          description: Obligatoria en `INCENDIO_TERREMOTO`.
+        archivos:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/ArchivoReporte' }
+        destinoPago:
+          $ref: '#/components/schemas/DestinoPago'
+          description: Obligatorio en `INCENDIO_TERREMOTO`; no puede llegar en `INCAPACIDAD_TOTAL`.
+
+    SiniestroReportado:
+      type: object
+      additionalProperties: false
+      required: [id, numero, estado]
+      examples:
+        - id: 3f2b8c1e-7d4a-4e5b-9a61-2c8d5f0b7e14
+          numero: SIN-2026-7K3M9Q
+          estado: EN_ESTUDIO
+      properties:
+        id: { type: string, format: uuid }
+        numero:
+          type: string
+          description: El radicado que ve el cliente, p. ej. `SIN-2026-7K3M9Q`.
+        estado: { $ref: '#/components/schemas/EstadoSiniestro' }
+
+    ProblemaSiniestro:
+      allOf:
+      - $ref: '#/components/schemas/Problema'
+      - type: object
+        properties:
+          codigo:
+            type: string
+            enum: [FUERA_DE_VIGENCIA, SINIESTRO_EN_CURSO, TIPO_NO_CUBIERTO]

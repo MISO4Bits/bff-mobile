@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime
 
@@ -36,6 +37,7 @@ class CoreClientAdapter:
         *,
         timeout_subida: httpx.Timeout | None = None,
         timeout_polizas: httpx.Timeout | None = None,
+        timeout_siniestros: httpx.Timeout | None = None,
     ) -> None:
         self._http = http
         # Subir una foto incluye el análisis de svc-core: no cabe en los 700 ms de las
@@ -43,6 +45,8 @@ class CoreClientAdapter:
         self._timeout_subida = timeout_subida or httpx.Timeout(5.0, pool=0.1)
         # Solicitar o leer una póliza pendiente puede emitirla (evaluación, base y evento).
         self._timeout_polizas = timeout_polizas or httpx.Timeout(3.0, pool=0.1)
+        # Reportar un siniestro valida y guarda varias imágenes y consulta el saldo del crédito.
+        self._timeout_siniestros = timeout_siniestros or httpx.Timeout(10.0, pool=0.1)
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -112,6 +116,31 @@ class CoreClientAdapter:
             )
             for item in resp.json()
         ]
+
+    # --- siniestros (BITS-381) ---
+
+    async def reportar(
+        self,
+        cliente_id: str,
+        datos: dict,
+        archivos: list[tuple[str, bytes, str]],
+        idempotency_key: str | None,
+    ) -> dict:
+        resp = await self._http.request(
+            "POST",
+            f"{CLIENTES}/{cliente_id}/siniestros",
+            data={"datos": json.dumps(datos)},
+            files=[("archivos", archivo) for archivo in archivos],
+            headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
+            timeout=self._timeout_siniestros,
+            reintentos=0,  # cada envío sube las imágenes: reintenta el cliente, con la misma llave
+        )
+        if resp.status_code == 413:
+            raise ImagenMuyGrande()
+        _asegurar_poliza_ok(resp)
+        siniestro = resp.json()
+        logger.info("siniestro reportado cliente_id=%s id=%s", cliente_id, siniestro["id"])
+        return siniestro
 
     # --- pólizas (BITS-101) ---
 

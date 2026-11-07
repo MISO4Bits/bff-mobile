@@ -112,3 +112,21 @@ class DispositivosPort(Protocol):
     async def quitar_dispositivo(self, cliente_id: str, dispositivo_id: str) -> None:
         """Idempotente: quitar uno que ya no existe no es un error."""
         ...
+
+
+@runtime_checkable
+class SiniestrosPort(Protocol):
+    """Siniestros del cliente en svc-core (BITS-381). Devuelve el cuerpo tal cual lo entrega
+    svc-core (ya validado allá); los errores salen como ``BffError`` con su ``codigo``."""
+
+    async def reportar(
+        self,
+        cliente_id: str,
+        datos: dict,
+        archivos: list[tuple[str, bytes, str]],
+        idempotency_key: str | None,
+    ) -> dict:
+        """Radica el siniestro. ``archivos`` son ``(nombre, contenido, content_type)``, en el
+        mismo orden que ``datos["archivos"]``. Con la misma ``idempotency_key`` devuelve el mismo
+        siniestro."""
+        ...

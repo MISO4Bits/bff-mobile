@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -297,3 +297,55 @@ class RegistrarDispositivoRequest(_Model):
 
 class DispositivoOut(_Model):
     dispositivo_id: str
+
+
+# --- Siniestros (BITS-381) ---
+
+
+class ArchivoReporteIn(_Model):
+    """Datos de un archivo del reporte, en el mismo orden que las partes ``archivos``. La
+    ubicación viaja aquí y no en la foto, porque la app borra los metadatos al recomprimirla."""
+
+    clase: Literal["FOTO", "DOCUMENTO"]
+    capturado_en: AwareDatetime | None = None
+    latitud: float | None = Field(default=None, ge=-90, le=90)
+    longitud: float | None = Field(default=None, ge=-180, le=180)
+
+
+class OficinaIn(_Model):
+    id: str = Field(min_length=1, max_length=64)
+    banco: str = Field(min_length=1, max_length=100)
+    nombre: str = Field(min_length=1, max_length=100)
+    direccion: str = Field(min_length=1, max_length=200)
+
+
+class DestinoTransferenciaIn(_Model):
+    tipo: Literal["TRANSFERENCIA"]
+    banco: str = Field(min_length=1, max_length=100)
+    tipo_cuenta: Literal["AHORROS", "CORRIENTE"]
+    numero_cuenta: str = Field(pattern=r"^[0-9]{4,20}$")
+
+
+class DestinoChequeIn(_Model):
+    tipo: Literal["CHEQUE"]
+    oficina: OficinaIn
+
+
+DestinoPagoIn = Annotated[DestinoTransferenciaIn | DestinoChequeIn, Field(discriminator="tipo")]
+
+
+class ReportarSiniestroDatos(_Model):
+    """La parte ``datos`` (JSON) del reporte multipart."""
+
+    poliza_id: str = Field(min_length=1, max_length=64)
+    tipo: Literal["INCAPACIDAD_TOTAL", "INCENDIO_TERREMOTO"]
+    fecha_ocurrencia: date
+    narracion: str | None = Field(default=None, max_length=4000)
+    archivos: list[ArchivoReporteIn] = Field(max_length=10)
+    destino_pago: DestinoPagoIn | None = None
+
+
+class SiniestroReportadoOut(_Model):
+    id: str
+    numero: str
+    estado: Literal["EN_ESTUDIO", "FALTA_INFORMACION", "PAGADO", "RECHAZADO"]

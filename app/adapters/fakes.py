@@ -444,3 +444,39 @@ class FakeDispositivos:
 
     async def quitar_dispositivo(self, cliente_id: str, dispositivo_id: str) -> None:
         self.llamadas.append(("quitar", cliente_id, dispositivo_id))
+
+
+class FakeSiniestros:
+    """Siniestros en memoria con la forma que entrega svc-core: la misma llave devuelve el mismo
+    siniestro y una cobertura con uno en curso responde ``SINIESTRO_EN_CURSO``."""
+
+    def __init__(self) -> None:
+        self.llamadas: list[tuple] = []
+        self._por_llave: dict[tuple[str, str], dict] = {}
+        self._en_curso: set[tuple[str, str, str]] = set()
+
+    async def reportar(
+        self,
+        cliente_id: str,
+        datos: dict,
+        archivos: list[tuple[str, bytes, str]],
+        idempotency_key: str | None,
+    ) -> dict:
+        self.llamadas.append((cliente_id, datos, archivos, idempotency_key))
+        if idempotency_key and (cliente_id, idempotency_key) in self._por_llave:
+            return self._por_llave[(cliente_id, idempotency_key)]
+        cobertura = (cliente_id, datos["polizaId"], datos["tipo"])
+        if cobertura in self._en_curso:
+            raise Conflicto(
+                "La póliza ya tiene un siniestro en curso para esa cobertura",
+                codigo="SINIESTRO_EN_CURSO",
+            )
+        self._en_curso.add(cobertura)
+        siniestro = {
+            "id": str(uuid.uuid4()),
+            "numero": f"SIN-{datetime.now(UTC).year}-{uuid.uuid4().hex[:6].upper()}",
+            "estado": "EN_ESTUDIO",
+        }
+        if idempotency_key:
+            self._por_llave[(cliente_id, idempotency_key)] = siniestro
+        return siniestro

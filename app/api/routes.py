@@ -16,6 +16,8 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
 from app.api.schemas import (
     PATRON_IDIOMA,
@@ -33,12 +35,21 @@ from app.api.schemas import (
     PolizaOut,
     RefrescoRequest,
     RegistrarDispositivoRequest,
+    ReportarSiniestroDatos,
     SesionOut,
+    SiniestroReportadoOut,
     SolicitarPolizaRequest,
     TipoDocumentoLegal,
     TipoEvidencia,
 )
-from app.domain import Claims, CotizacionInput, DatosCreditoInput, NoAutorizado
+from app.domain import (
+    Claims,
+    CotizacionInput,
+    DatosCreditoInput,
+    ImagenMuyGrande,
+    NoAutorizado,
+    SolicitudInvalida,
+)
 from app.logging_utils import sanear_para_log
 from app.services import (
     CotizacionesService,
@@ -48,6 +59,7 @@ from app.services import (
     EvidenciasIdentidadService,
     PolizasService,
     SesionService,
+    SiniestrosService,
 )
 
 logger = logging.getLogger("bff_mobile.api")
@@ -98,6 +110,13 @@ def get_dispositivos(request: Request) -> DispositivosService:
 
 
 DispositivosDep = Annotated[DispositivosService, Depends(get_dispositivos)]
+
+
+def get_siniestros(request: Request) -> SiniestrosService:
+    return request.app.state.siniestros
+
+
+SiniestrosDep = Annotated[SiniestrosService, Depends(get_siniestros)]
 
 
 def get_evidencias(request: Request) -> EvidenciasIdentidadService:
@@ -405,3 +424,67 @@ async def obtener_version_documento_legal(
     documento = await service.obtener_version(tipo, version, mercado, idioma)
     response.headers["Cache-Control"] = CACHE_VERSION_INMUTABLE
     return DocumentoLegalOut.model_validate(documento)
+
+
+def _leer_datos_del_siniestro(crudo: str) -> ReportarSiniestroDatos:
+    """Valida la parte ``datos``. Los errores salen con el campo (``datos.tipo``, ...) y sin el
+    valor recibido: ahí puede venir un número de cuenta."""
+    try:
+        return ReportarSiniestroDatos.model_validate_json(crudo)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [
+                {"loc": ("datos", *e["loc"]), "msg": e["msg"], "type": e["type"]}
+                for e in exc.errors()
+            ]
+        ) from None
+
+
+@router.post(
+    "/cuenta/siniestros",
+    response_model=SiniestroReportadoOut,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Siniestros"],
+)
+async def reportar_mi_siniestro(
+    datos: Annotated[str, Form()],
+    archivos: Annotated[list[UploadFile], File()],
+    claims: ClaimsDep,
+    service: SiniestrosDep,
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=64)] = None,
+) -> SiniestroReportadoOut:
+    reporte = _leer_datos_del_siniestro(datos)
+    # Ni el destino del pago ni las imágenes se escriben en el log.
+    logger.info(
+        "POST /v1/cuenta/siniestros: solicitud recibida cliente_id=%s tipo=%s archivos=%d",
+        claims.cliente_id,
+        reporte.tipo,
+        len(archivos),
+    )
+    if len(archivos) != len(reporte.archivos):
+        raise SolicitudInvalida(
+            "Debe haber un dato por cada archivo, en el mismo orden",
+            errores=[{"campo": "archivos", "mensaje": "no coincide con datos.archivos"}],
+        )
+    contenidos: list[tuple[str, bytes, str]] = []
+    for parte in archivos:
+        # Se lee un byte de más para detectar el exceso sin cargar un archivo sin límite.
+        contenido = await parte.read(service.max_bytes + 1)
+        if len(contenido) > service.max_bytes:
+            raise ImagenMuyGrande(f"La imagen supera el máximo de {service.max_bytes} bytes")
+        contenidos.append(
+            (
+                parte.filename or "archivo",
+                contenido,
+                parte.content_type or "application/octet-stream",
+            )
+        )
+    siniestro = await service.reportar(
+        claims.cliente_id,
+        reporte.model_dump(by_alias=True, mode="json", exclude_none=True),
+        contenidos,
+        idempotency_key,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return SiniestroReportadoOut.model_validate(siniestro)

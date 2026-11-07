@@ -19,6 +19,7 @@ from app.adapters.fakes import (
     FakeEvidencias,
     FakeIdentityProvider,
     FakePolizas,
+    FakeSiniestros,
 )
 from app.adapters.identity_platform import IdentityPlatformAdapter
 from app.adapters.perfilamiento_client import PerfilamientoClientAdapter
@@ -35,6 +36,7 @@ from app.ports import (
     EvidenciasIdentidadPort,
     IdentityProviderPort,
     PolizasPort,
+    SiniestrosPort,
 )
 from app.resilience import ResilientHttpClient, build_breaker
 from app.security import SessionIssuer
@@ -54,6 +56,8 @@ class Dependencias:
     documentos_legales: DocumentosLegalesPort
     # En modo http es el mismo adaptador que ``core``.
     dispositivos: DispositivosPort
+    # En modo http es el mismo adaptador que ``core``.
+    siniestros: SiniestrosPort
 
     async def aclose(self) -> None:
         for adapter in (self.identity, self.core, self.creditos, self.entidades, self.cotizacion):
@@ -117,6 +121,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             FakePolizas(),
             FakeDocumentosLegales(),
             FakeDispositivos(),
+            FakeSiniestros(),
         )
 
     if settings.adapters == "http":
@@ -127,6 +132,9 @@ def build_dependencias(settings: Settings) -> Dependencias:
             ),
             timeout_polizas=httpx.Timeout(
                 settings.polizas_timeout_seconds, pool=settings.http_pool_timeout_seconds
+            ),
+            timeout_siniestros=httpx.Timeout(
+                settings.siniestros_timeout_seconds, pool=settings.http_pool_timeout_seconds
             ),
         )
         productos = ProductosClientAdapter(
@@ -149,6 +157,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             core,
             core,
             productos,
+            core,
             core,
         )
 
