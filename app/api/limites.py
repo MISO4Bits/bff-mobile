@@ -14,32 +14,36 @@ MAX_ARCHIVOS_SINIESTRO = 10
 HOLGURA_MULTIPART = 64 * 1024
 
 
-def install_limite_de_subidas(app: FastAPI, max_bytes: int) -> None:
-    # Ruta -> (límite del cuerpo, mensaje). Una foto, o hasta MAX_ARCHIVOS_SINIESTRO en el reporte.
-    limites = {
-        RUTA_SUBIDAS: (
-            max_bytes + HOLGURA_MULTIPART,
-            f"La imagen supera el máximo de {max_bytes} bytes",
-        ),
-        RUTA_SINIESTROS: (
-            max_bytes * MAX_ARCHIVOS_SINIESTRO + HOLGURA_MULTIPART,
-            f"Cada imagen puede pesar hasta {max_bytes} bytes y el reporte lleva a lo sumo "
-            f"{MAX_ARCHIVOS_SINIESTRO}",
-        ),
-    }
+def _es_envio_de_siniestro(ruta: str) -> bool:
+    """El reporte o el envío de lo que falta de un siniestro."""
+    return ruta.endswith(RUTA_SINIESTROS) or (
+        RUTA_SINIESTROS + "/" in ruta and ruta.endswith("/evidencias")
+    )
 
+
+def install_limite_de_subidas(app: FastAPI, max_bytes: int) -> None:
     @app.middleware("http")
     async def _limitar_subidas(request: Request, call_next):
         if request.method == "POST":
-            for ruta, (limite, detalle) in limites.items():
-                if request.url.path.endswith(ruta):
-                    largo = request.headers.get("content-length", "")
-                    if largo.isdigit() and int(largo) > limite:
-                        return problema(
-                            413,
-                            "Imagen demasiado grande",
-                            detail=detalle,
-                            instance=str(request.url),
-                        )
-                    break
+            ruta = request.url.path
+            if ruta.endswith(RUTA_SUBIDAS):
+                limite = max_bytes + HOLGURA_MULTIPART
+                detalle = f"La imagen supera el máximo de {max_bytes} bytes"
+            elif _es_envio_de_siniestro(ruta):
+                # Una foto por archivo, hasta MAX_ARCHIVOS_SINIESTRO en un solo envío.
+                limite = max_bytes * MAX_ARCHIVOS_SINIESTRO + HOLGURA_MULTIPART
+                detalle = (
+                    f"Cada imagen puede pesar hasta {max_bytes} bytes y el envío lleva a lo "
+                    f"sumo {MAX_ARCHIVOS_SINIESTRO}"
+                )
+            else:
+                return await call_next(request)
+            largo = request.headers.get("content-length", "")
+            if largo.isdigit() and int(largo) > limite:
+                return problema(
+                    413,
+                    "Imagen demasiado grande",
+                    detail=detalle,
+                    instance=str(request.url),
+                )
         return await call_next(request)

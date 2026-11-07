@@ -448,12 +448,38 @@ class FakeDispositivos:
 
 class FakeSiniestros:
     """Siniestros en memoria con la forma que entrega svc-core: la misma llave devuelve el mismo
-    siniestro y una cobertura con uno en curso responde ``SINIESTRO_EN_CURSO``."""
+    siniestro, una cobertura con uno en curso responde ``SINIESTRO_EN_CURSO`` y lo que falta solo
+    se entrega con el siniestro en ``FALTA_INFORMACION``. ``pedir_evidencia`` hace de bandeja del
+    ``ADMIN`` para llegar a ese estado en pruebas y en el front."""
 
     def __init__(self) -> None:
         self.llamadas: list[tuple] = []
-        self._por_llave: dict[tuple[str, str], dict] = {}
-        self._en_curso: set[tuple[str, str, str]] = set()
+        self.entregas: list[tuple] = []
+        self._por_llave: dict[tuple[str, str], str] = {}
+        self._items: dict[str, dict] = {}
+        self._duenos: dict[str, str] = {}
+
+    @staticmethod
+    def _ahora() -> str:
+        return datetime.now(UTC).isoformat()
+
+    @staticmethod
+    def _archivos(datos: dict, archivos: list[tuple[str, bytes, str]], ahora: str) -> list[dict]:
+        return [
+            {
+                "id": str(uuid.uuid4()),
+                "clase": dato["clase"],
+                "capturadoEn": dato.get("capturadoEn"),
+                "latitud": dato.get("latitud"),
+                "longitud": dato.get("longitud"),
+                "entregadoEn": ahora,
+            }
+            for dato, _ in zip(datos["archivos"], archivos, strict=True)
+        ]
+
+    @staticmethod
+    def _limite(ahora: str) -> str:
+        return (datetime.fromisoformat(ahora) + timedelta(days=30)).isoformat()
 
     async def reportar(
         self,
@@ -463,20 +489,108 @@ class FakeSiniestros:
         idempotency_key: str | None,
     ) -> dict:
         self.llamadas.append((cliente_id, datos, archivos, idempotency_key))
-        if idempotency_key and (cliente_id, idempotency_key) in self._por_llave:
-            return self._por_llave[(cliente_id, idempotency_key)]
-        cobertura = (cliente_id, datos["polizaId"], datos["tipo"])
-        if cobertura in self._en_curso:
-            raise Conflicto(
-                "La póliza ya tiene un siniestro en curso para esa cobertura",
-                codigo="SINIESTRO_EN_CURSO",
-            )
-        self._en_curso.add(cobertura)
+        previo = self._por_llave.get((cliente_id, idempotency_key or ""))
+        if idempotency_key and previo:
+            return self._resumen_de_reporte(self._items[previo])
+        for existente in self._items.values():
+            if (
+                self._duenos[existente["id"]] == cliente_id
+                and existente["polizaId"] == datos["polizaId"]
+                and existente["tipo"] == datos["tipo"]
+                and existente["estado"] in ("EN_ESTUDIO", "FALTA_INFORMACION")
+            ):
+                raise Conflicto(
+                    "La póliza ya tiene un siniestro en curso para esa cobertura",
+                    codigo="SINIESTRO_EN_CURSO",
+                )
+        ahora = self._ahora()
         siniestro = {
             "id": str(uuid.uuid4()),
             "numero": f"SIN-{datetime.now(UTC).year}-{uuid.uuid4().hex[:6].upper()}",
+            "polizaId": datos["polizaId"],
+            "tipo": datos["tipo"],
+            "automatico": False,
             "estado": "EN_ESTUDIO",
+            "reportadoEn": ahora,
+            "actualizadoEn": ahora,
+            "fechaOcurrencia": datos["fechaOcurrencia"],
+            "narracion": datos.get("narracion"),
+            "ultimaEntregaEn": ahora,
+            "fechaLimite": self._limite(ahora),
+            "evidenciaPedida": None,
+            "motivoRechazo": None,
+            "pago": None,
+            "archivos": self._archivos(datos, archivos, ahora),
+            "evento": None,
         }
+        self._items[siniestro["id"]] = siniestro
+        self._duenos[siniestro["id"]] = cliente_id
         if idempotency_key:
-            self._por_llave[(cliente_id, idempotency_key)] = siniestro
-        return siniestro
+            self._por_llave[(cliente_id, idempotency_key)] = siniestro["id"]
+        return self._resumen_de_reporte(siniestro)
+
+    @staticmethod
+    def _resumen_de_reporte(siniestro: dict) -> dict:
+        return {
+            "id": siniestro["id"],
+            "numero": siniestro["numero"],
+            "estado": siniestro["estado"],
+        }
+
+    async def listar_siniestros(self, cliente_id: str) -> list[dict]:
+        propios = [s for s in self._items.values() if self._duenos[s["id"]] == cliente_id]
+        propios.sort(key=lambda s: s["reportadoEn"], reverse=True)
+        campos = (
+            "id",
+            "numero",
+            "polizaId",
+            "tipo",
+            "automatico",
+            "estado",
+            "reportadoEn",
+            "actualizadoEn",
+        )
+        return [{c: s[c] for c in campos} for s in propios]
+
+    async def obtener_siniestro(self, cliente_id: str, siniestro_id: str) -> dict:
+        siniestro = self._items.get(siniestro_id)
+        if siniestro is None or self._duenos[siniestro_id] != cliente_id:
+            raise RecursoNoEncontrado("Siniestro no encontrado")
+        return dict(siniestro)
+
+    async def entregar_evidencias(
+        self,
+        cliente_id: str,
+        siniestro_id: str,
+        datos: dict,
+        archivos: list[tuple[str, bytes, str]],
+        idempotency_key: str | None,
+    ) -> dict:
+        self.entregas.append((cliente_id, siniestro_id, datos, archivos, idempotency_key))
+        siniestro = await self.obtener_siniestro(cliente_id, siniestro_id)
+        if siniestro["estado"] != "FALTA_INFORMACION":
+            raise Conflicto(
+                f"El siniestro está {siniestro['estado']}: no admite esa acción",
+                codigo="ESTADO_NO_PERMITE",
+            )
+        ahora = self._ahora()
+        guardado = self._items[siniestro_id]
+        guardado["archivos"] = [*guardado["archivos"], *self._archivos(datos, archivos, ahora)]
+        guardado.update(
+            estado="EN_ESTUDIO",
+            ultimaEntregaEn=ahora,
+            actualizadoEn=ahora,
+            fechaLimite=self._limite(ahora),
+        )
+        return dict(guardado)
+
+    def pedir_evidencia(self, siniestro_id: str, detalle: str) -> None:
+        """Lo que hará la bandeja del ``ADMIN`` (BITS-377): deja el siniestro en
+        ``FALTA_INFORMACION`` con lo que se pidió."""
+        ahora = self._ahora()
+        self._items[siniestro_id].update(
+            estado="FALTA_INFORMACION",
+            evidenciaPedida={"detalle": detalle, "pedidaEn": ahora},
+            fechaLimite=None,
+            actualizadoEn=ahora,
+        )

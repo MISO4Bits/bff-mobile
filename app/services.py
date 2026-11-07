@@ -291,3 +291,21 @@ class SiniestrosService:
         idempotency_key: str | None,
     ) -> dict:
         return await self._siniestros.reportar(cliente_id, datos, archivos, idempotency_key)
+
+    async def listar(self, cliente_id: str) -> list[dict]:
+        return await self._siniestros.listar_siniestros(cliente_id)
+
+    async def obtener(self, cliente_id: str, siniestro_id: str) -> dict:
+        return await self._siniestros.obtener_siniestro(cliente_id, siniestro_id)
+
+    async def entregar_evidencias(
+        self,
+        cliente_id: str,
+        siniestro_id: str,
+        datos: dict,
+        archivos: list[tuple[str, bytes, str]],
+        idempotency_key: str | None,
+    ) -> dict:
+        return await self._siniestros.entregar_evidencias(
+            cliente_id, siniestro_id, datos, archivos, idempotency_key
+        )
