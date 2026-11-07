@@ -120,3 +120,113 @@ async def test_si_svc_core_no_esta_disponible_falla_sin_reintentar():
         await adaptador.aclose()
 
     assert ruta.call_count == 1
+
+
+# --- lista, detalle y lo que falta (BITS-383 y BITS-384) ---
+
+DETALLE = {**SINIESTRO, "polizaId": "p-1", "tipo": "INCENDIO_TERREMOTO", "archivos": []}
+RUTA_LISTA = f"{CORE}/v1/clientes/c-1/siniestros"
+
+
+@respx.mock
+async def test_lista_los_siniestros_del_cliente():
+    ruta = respx.get(RUTA_LISTA).mock(return_value=httpx.Response(200, json=[DETALLE]))
+    adaptador = _core()
+    try:
+        siniestros = await adaptador.listar_siniestros("c-1")
+    finally:
+        await adaptador.aclose()
+
+    assert siniestros == [DETALLE]
+    assert ruta.call_count == 1
+
+
+@respx.mock
+async def test_obtiene_el_detalle_y_escapa_el_id_en_la_ruta():
+    ruta = respx.get(f"{RUTA_LISTA}/s%2F1").mock(return_value=httpx.Response(200, json=DETALLE))
+    adaptador = _core()
+    try:
+        detalle = await adaptador.obtener_siniestro("c-1", "s/1")
+    finally:
+        await adaptador.aclose()
+
+    assert detalle == DETALLE
+    assert ruta.calls.last.request.url.raw_path == b"/v1/clientes/c-1/siniestros/s%2F1"
+
+
+@respx.mock
+async def test_un_siniestro_que_no_existe_es_404():
+    respx.get(f"{RUTA_LISTA}/s-9").mock(
+        return_value=httpx.Response(404, json={"detail": "Siniestro s-9 no encontrado"})
+    )
+    adaptador = _core()
+    try:
+        with pytest.raises(RecursoNoEncontrado):
+            await adaptador.obtener_siniestro("c-1", "s-9")
+        respx.get(RUTA_LISTA).mock(return_value=httpx.Response(404, json={}))
+        with pytest.raises(RecursoNoEncontrado):
+            await adaptador.listar_siniestros("c-1")
+    finally:
+        await adaptador.aclose()
+
+
+@respx.mock
+async def test_entrega_lo_que_falta_como_multipart_con_la_llave():
+    ruta = respx.post(f"{RUTA_LISTA}/s-1/evidencias").mock(
+        return_value=httpx.Response(201, json=DETALLE)
+    )
+    datos = {"archivos": [{"clase": "DOCUMENTO"}]}
+    adaptador = _core()
+    try:
+        detalle = await adaptador.entregar_evidencias("c-1", "s-1", datos, ARCHIVOS, "llave-9")
+    finally:
+        await adaptador.aclose()
+
+    assert detalle == DETALLE
+    pedido = ruta.calls.last.request
+    assert pedido.headers["Idempotency-Key"] == "llave-9"
+    assert pedido.headers["content-type"].startswith("multipart/form-data")
+    assert json.dumps(datos).encode() in pedido.content
+    assert ARCHIVOS[0][1] in pedido.content
+
+
+@pytest.mark.parametrize(
+    ("estado", "cuerpo", "esperado"),
+    [
+        (409, {"detail": "no admite", "codigo": "ESTADO_NO_PERMITE"}, Conflicto),
+        (404, {"detail": "no existe"}, RecursoNoEncontrado),
+        (
+            400,
+            {"detail": "Falta la evidencia", "errores": [{"campo": "archivos"}]},
+            SolicitudInvalida,
+        ),
+        (413, {}, ImagenMuyGrande),
+    ],
+)
+@respx.mock
+async def test_la_entrega_traduce_los_errores_de_svc_core(estado, cuerpo, esperado):
+    respx.post(f"{RUTA_LISTA}/s-1/evidencias").mock(
+        return_value=httpx.Response(estado, json=cuerpo)
+    )
+    adaptador = _core()
+    try:
+        with pytest.raises(esperado) as error:
+            await adaptador.entregar_evidencias("c-1", "s-1", {"archivos": []}, ARCHIVOS, None)
+    finally:
+        await adaptador.aclose()
+
+    assert getattr(error.value, "codigo", None) == cuerpo.get("codigo")
+
+
+@respx.mock
+async def test_la_entrega_no_reintenta():
+    ruta = respx.post(f"{RUTA_LISTA}/s-1/evidencias").mock(
+        return_value=httpx.Response(201, json=DETALLE)
+    )
+    adaptador = _core(retries=3)
+    try:
+        await adaptador.entregar_evidencias("c-1", "s-1", {"archivos": []}, ARCHIVOS, "k")
+    finally:
+        await adaptador.aclose()
+
+    assert ruta.call_count == 1

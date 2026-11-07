@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, datetime
+from urllib.parse import quote
 
 import httpx
 
@@ -119,16 +120,16 @@ class CoreClientAdapter:
 
     # --- siniestros (BITS-381) ---
 
-    async def reportar(
+    async def _enviar_archivos(
         self,
-        cliente_id: str,
+        ruta: str,
         datos: dict,
         archivos: list[tuple[str, bytes, str]],
         idempotency_key: str | None,
     ) -> dict:
         resp = await self._http.request(
             "POST",
-            f"{CLIENTES}/{cliente_id}/siniestros",
+            ruta,
             data={"datos": json.dumps(datos)},
             files=[("archivos", archivo) for archivo in archivos],
             headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
@@ -138,8 +139,48 @@ class CoreClientAdapter:
         if resp.status_code == 413:
             raise ImagenMuyGrande()
         _asegurar_poliza_ok(resp)
-        siniestro = resp.json()
+        return resp.json()
+
+    async def reportar(
+        self,
+        cliente_id: str,
+        datos: dict,
+        archivos: list[tuple[str, bytes, str]],
+        idempotency_key: str | None,
+    ) -> dict:
+        siniestro = await self._enviar_archivos(
+            f"{CLIENTES}/{cliente_id}/siniestros", datos, archivos, idempotency_key
+        )
         logger.info("siniestro reportado cliente_id=%s id=%s", cliente_id, siniestro["id"])
+        return siniestro
+
+    async def listar_siniestros(self, cliente_id: str) -> list[dict]:
+        resp = await self._http.request("GET", f"{CLIENTES}/{cliente_id}/siniestros")
+        _asegurar_poliza_ok(resp)
+        return resp.json()
+
+    async def obtener_siniestro(self, cliente_id: str, siniestro_id: str) -> dict:
+        resp = await self._http.request(
+            "GET", f"{CLIENTES}/{cliente_id}/siniestros/{quote(siniestro_id, safe='')}"
+        )
+        _asegurar_poliza_ok(resp)
+        return resp.json()
+
+    async def entregar_evidencias(
+        self,
+        cliente_id: str,
+        siniestro_id: str,
+        datos: dict,
+        archivos: list[tuple[str, bytes, str]],
+        idempotency_key: str | None,
+    ) -> dict:
+        siniestro = await self._enviar_archivos(
+            f"{CLIENTES}/{cliente_id}/siniestros/{quote(siniestro_id, safe='')}/evidencias",
+            datos,
+            archivos,
+            idempotency_key,
+        )
+        logger.info("evidencia entregada cliente_id=%s id=%s", cliente_id, siniestro["id"])
         return siniestro
 
     # --- pólizas (BITS-101) ---

@@ -17,7 +17,7 @@ from fastapi import (
     status,
 )
 from fastapi.exceptions import RequestValidationError
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.api.schemas import (
     PATRON_IDIOMA,
@@ -29,6 +29,7 @@ from app.api.schemas import (
     DispositivoOut,
     DocumentoLegalOut,
     DocumentoPolizaOut,
+    EntregarEvidenciasDatos,
     EstadoEvidenciaOut,
     EstadoPoliza,
     EvidenciaSubidaOut,
@@ -37,7 +38,9 @@ from app.api.schemas import (
     RegistrarDispositivoRequest,
     ReportarSiniestroDatos,
     SesionOut,
+    SiniestroOut,
     SiniestroReportadoOut,
+    SiniestroResumenOut,
     SolicitarPolizaRequest,
     TipoDocumentoLegal,
     TipoEvidencia,
@@ -426,11 +429,11 @@ async def obtener_version_documento_legal(
     return DocumentoLegalOut.model_validate(documento)
 
 
-def _leer_datos_del_siniestro(crudo: str) -> ReportarSiniestroDatos:
+def _leer_datos[T: BaseModel](modelo: type[T], crudo: str) -> T:
     """Valida la parte ``datos``. Los errores salen con el campo (``datos.tipo``, ...) y sin el
     valor recibido: ahí puede venir un número de cuenta."""
     try:
-        return ReportarSiniestroDatos.model_validate_json(crudo)
+        return modelo.model_validate_json(crudo)
     except ValidationError as exc:
         raise RequestValidationError(
             [
@@ -438,6 +441,34 @@ def _leer_datos_del_siniestro(crudo: str) -> ReportarSiniestroDatos:
                 for e in exc.errors()
             ]
         ) from None
+
+
+async def _leer_archivos(
+    partes: list[UploadFile], esperados: int, service: SiniestrosService
+) -> list[tuple[str, bytes, str]]:
+    """Las imágenes del envío, en orden. Debe haber un dato por cada una (``datos.archivos``)."""
+    if len(partes) != esperados:
+        raise SolicitudInvalida(
+            "Debe haber un dato por cada archivo, en el mismo orden",
+            errores=[{"campo": "archivos", "mensaje": "no coincide con datos.archivos"}],
+        )
+    contenidos: list[tuple[str, bytes, str]] = []
+    for parte in partes:
+        # Se lee un byte de más para detectar el exceso sin cargar un archivo sin límite.
+        contenido = await parte.read(service.max_bytes + 1)
+        if len(contenido) > service.max_bytes:
+            raise ImagenMuyGrande(f"La imagen supera el máximo de {service.max_bytes} bytes")
+        contenidos.append(
+            (
+                parte.filename or "archivo",
+                contenido,
+                parte.content_type or "application/octet-stream",
+            )
+        )
+    return contenidos
+
+
+LlaveDeIdempotencia = Annotated[str | None, Header(alias="Idempotency-Key", max_length=64)]
 
 
 @router.post(
@@ -452,9 +483,9 @@ async def reportar_mi_siniestro(
     claims: ClaimsDep,
     service: SiniestrosDep,
     response: Response,
-    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=64)] = None,
+    idempotency_key: LlaveDeIdempotencia = None,
 ) -> SiniestroReportadoOut:
-    reporte = _leer_datos_del_siniestro(datos)
+    reporte = _leer_datos(ReportarSiniestroDatos, datos)
     # Ni el destino del pago ni las imágenes se escriben en el log.
     logger.info(
         "POST /v1/cuenta/siniestros: solicitud recibida cliente_id=%s tipo=%s archivos=%d",
@@ -462,24 +493,7 @@ async def reportar_mi_siniestro(
         reporte.tipo,
         len(archivos),
     )
-    if len(archivos) != len(reporte.archivos):
-        raise SolicitudInvalida(
-            "Debe haber un dato por cada archivo, en el mismo orden",
-            errores=[{"campo": "archivos", "mensaje": "no coincide con datos.archivos"}],
-        )
-    contenidos: list[tuple[str, bytes, str]] = []
-    for parte in archivos:
-        # Se lee un byte de más para detectar el exceso sin cargar un archivo sin límite.
-        contenido = await parte.read(service.max_bytes + 1)
-        if len(contenido) > service.max_bytes:
-            raise ImagenMuyGrande(f"La imagen supera el máximo de {service.max_bytes} bytes")
-        contenidos.append(
-            (
-                parte.filename or "archivo",
-                contenido,
-                parte.content_type or "application/octet-stream",
-            )
-        )
+    contenidos = await _leer_archivos(archivos, len(reporte.archivos), service)
     siniestro = await service.reportar(
         claims.cliente_id,
         reporte.model_dump(by_alias=True, mode="json", exclude_none=True),
@@ -488,3 +502,61 @@ async def reportar_mi_siniestro(
     )
     response.headers["Cache-Control"] = "no-store"
     return SiniestroReportadoOut.model_validate(siniestro)
+
+
+@router.get("/cuenta/siniestros", response_model=list[SiniestroResumenOut], tags=["Siniestros"])
+async def listar_mis_siniestros(
+    claims: ClaimsDep, service: SiniestrosDep, response: Response
+) -> list[SiniestroResumenOut]:
+    logger.info("GET /v1/cuenta/siniestros: solicitud recibida cliente_id=%s", claims.cliente_id)
+    siniestros = await service.listar(claims.cliente_id)
+    response.headers["Cache-Control"] = "no-store"
+    return [SiniestroResumenOut.model_validate(s) for s in siniestros]
+
+
+@router.get("/cuenta/siniestros/{siniestro_id}", response_model=SiniestroOut, tags=["Siniestros"])
+async def obtener_mi_siniestro(
+    siniestro_id: str, claims: ClaimsDep, service: SiniestrosDep, response: Response
+) -> SiniestroOut:
+    logger.info(
+        "GET /v1/cuenta/siniestros/%s: solicitud recibida cliente_id=%s",
+        sanear_para_log(siniestro_id),
+        claims.cliente_id,
+    )
+    siniestro = await service.obtener(claims.cliente_id, siniestro_id)
+    response.headers["Cache-Control"] = "no-store"
+    return SiniestroOut.model_validate(siniestro)
+
+
+@router.post(
+    "/cuenta/siniestros/{siniestro_id}/evidencias",
+    response_model=SiniestroOut,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Siniestros"],
+)
+async def entregar_evidencias_de_mi_siniestro(
+    siniestro_id: str,
+    datos: Annotated[str, Form()],
+    archivos: Annotated[list[UploadFile], File()],
+    claims: ClaimsDep,
+    service: SiniestrosDep,
+    response: Response,
+    idempotency_key: LlaveDeIdempotencia = None,
+) -> SiniestroOut:
+    entrega = _leer_datos(EntregarEvidenciasDatos, datos)
+    logger.info(
+        "POST /v1/cuenta/siniestros/%s/evidencias: solicitud recibida cliente_id=%s archivos=%d",
+        sanear_para_log(siniestro_id),
+        claims.cliente_id,
+        len(archivos),
+    )
+    contenidos = await _leer_archivos(archivos, len(entrega.archivos), service)
+    siniestro = await service.entregar_evidencias(
+        claims.cliente_id,
+        siniestro_id,
+        entrega.model_dump(by_alias=True, mode="json", exclude_none=True),
+        contenidos,
+        idempotency_key,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return SiniestroOut.model_validate(siniestro)

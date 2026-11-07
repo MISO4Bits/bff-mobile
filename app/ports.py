@@ -130,3 +130,23 @@ class SiniestrosPort(Protocol):
         mismo orden que ``datos["archivos"]``. Con la misma ``idempotency_key`` devuelve el mismo
         siniestro."""
         ...
+
+    async def listar_siniestros(self, cliente_id: str) -> list[dict]:
+        """Los siniestros del cliente, del más reciente al más antiguo."""
+        ...
+
+    async def obtener_siniestro(self, cliente_id: str, siniestro_id: str) -> dict:
+        """El detalle. Uno de otro cliente responde igual que uno que no existe."""
+        ...
+
+    async def entregar_evidencias(
+        self,
+        cliente_id: str,
+        siniestro_id: str,
+        datos: dict,
+        archivos: list[tuple[str, bytes, str]],
+        idempotency_key: str | None,
+    ) -> dict:
+        """Envía lo que Solventa pidió; solo con el siniestro en ``FALTA_INFORMACION`` (si no,
+        ``Conflicto`` con ``codigo = ESTADO_NO_PERMITE``). Devuelve el detalle actualizado."""
+        ...
