@@ -21,6 +21,7 @@ from app.services import (
     EvidenciasIdentidadService,
     PolizasService,
     SesionService,
+    SiniestrosService,
 )
 from app.telemetry import agregar_encabezado_trace_id, setup_telemetry, shutdown_telemetry
 
@@ -42,6 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     evidencias = EvidenciasIdentidadService(deps.evidencias, max_bytes=settings.evidencia_max_bytes)
     polizas = PolizasService(deps.polizas)
     dispositivos = DispositivosService(deps.dispositivos)
+    siniestros = SiniestrosService(deps.siniestros, max_bytes=settings.evidencia_max_bytes)
     documentos_legales = DocumentosLegalesService(deps.documentos_legales)
 
     @asynccontextmanager
@@ -61,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.evidencias = evidencias
     app.state.polizas = polizas
     app.state.dispositivos = dispositivos
+    app.state.siniestros = siniestros
     app.state.documentos_legales = documentos_legales
     app.state.sessions = deps.sessions
 

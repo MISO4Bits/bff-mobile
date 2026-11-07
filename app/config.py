@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     # (evaluación, base de datos y evento), así que no cabe en http_timeout_seconds.
     polizas_timeout_seconds: float = 3.0
 
+    # Reportar un siniestro (BITS-381) valida y guarda hasta 10 imágenes y consulta el saldo del
+    # crédito en svc-core: no cabe en http_timeout_seconds.
+    siniestros_timeout_seconds: float = 10.0
+
     # Patrones de resiliencia hacia dependencias (§6.1: timeout duro 700 ms)
     http_timeout_seconds: float = 0.7
     http_retries: int = 2

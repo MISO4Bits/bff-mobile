@@ -39,6 +39,7 @@ from app.ports import (
     EvidenciasIdentidadPort,
     IdentityProviderPort,
     PolizasPort,
+    SiniestrosPort,
 )
 from app.security import SessionIssuer
 
@@ -272,3 +273,21 @@ class DocumentosLegalesService:
         self, tipo: str, version: str, mercado: str, idioma: str
     ) -> DocumentoLegal:
         return await self._documentos.obtener_version(tipo, version, mercado, idioma)
+
+
+class SiniestrosService:
+    """Siniestros del cliente. svc-core valida vigencia, cobertura y evidencia y decide el estado;
+    aquí solo se pasan las llamadas con el ``clienteId`` del token."""
+
+    def __init__(self, siniestros: SiniestrosPort, *, max_bytes: int) -> None:
+        self._siniestros = siniestros
+        self.max_bytes = max_bytes
+
+    async def reportar(
+        self,
+        cliente_id: str,
+        datos: dict,
+        archivos: list[tuple[str, bytes, str]],
+        idempotency_key: str | None,
+    ) -> dict:
+        return await self._siniestros.reportar(cliente_id, datos, archivos, idempotency_key)
