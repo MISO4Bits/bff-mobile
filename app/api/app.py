@@ -52,9 +52,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        yield
-        await deps.aclose()
-        shutdown_telemetry(telemetry)
+        try:
+            yield
+        finally:
+            try:
+                await deps.aclose()
+            finally:
+                shutdown_telemetry(telemetry)
 
     app = FastAPI(title="BFF Móvil — Sesión", version="0.1.0", lifespan=lifespan)
     telemetry = setup_telemetry(app, settings)
