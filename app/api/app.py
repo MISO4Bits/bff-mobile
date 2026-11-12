@@ -14,6 +14,7 @@ from app.api.routes import router
 from app.config import Settings, get_settings
 from app.logging_utils import SinRuidoDeHealthCheck
 from app.services import (
+    CatalogoSiniestrosService,
     CotizacionesService,
     CreditosHipotecariosService,
     DispositivosService,
@@ -44,6 +45,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     polizas = PolizasService(deps.polizas)
     dispositivos = DispositivosService(deps.dispositivos)
     siniestros = SiniestrosService(deps.siniestros, max_bytes=settings.evidencia_max_bytes)
+    catalogo_siniestros = CatalogoSiniestrosService(
+        deps.catalogo, cache_segundos=settings.entidades_cache_segundos
+    )
     documentos_legales = DocumentosLegalesService(deps.documentos_legales)
 
     @asynccontextmanager
@@ -64,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.polizas = polizas
     app.state.dispositivos = dispositivos
     app.state.siniestros = siniestros
+    app.state.catalogo_siniestros = catalogo_siniestros
     app.state.documentos_legales = documentos_legales
     app.state.sessions = deps.sessions
 

@@ -6,6 +6,7 @@ variables de entorno (ver ``app/adapters/factory.py``), no vive en el código.
 
 from __future__ import annotations
 
+import copy
 import itertools
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -104,6 +105,101 @@ class FakeEntidadesFinancieras:
     async def listar_entidades(self, mercado: str) -> list[EntidadFinanciera]:
         self.llamadas += 1
         return list(self._entidades) if mercado == "CO" else []
+
+
+class FakeCatalogoSiniestros:
+    """Catálogo pequeño con la forma de svc-productos, para correr el BFF standalone y para el
+    front: los seis tipos, dos localidades de Bogotá, tres prestadores y dos oficinas."""
+
+    CATALOGO = {
+        "mercado": "CO",
+        "version": 1,
+        "tiposAyuda": [
+            {"id": "plomeria", "nombre": "Plomería", "orden": 1},
+            {"id": "electricidad", "nombre": "Electricidad", "orden": 2},
+            {"id": "cerrajeria", "nombre": "Cerrajería", "orden": 3},
+            {"id": "vidrios", "nombre": "Vidrios", "orden": 4},
+            {"id": "escombros", "nombre": "Remoción de escombros", "orden": 5},
+            {"id": "techos", "nombre": "Techos y cubiertas", "orden": 6},
+        ],
+        "localidades": [
+            {
+                "id": "usaquen",
+                "nombre": "Usaquén",
+                "ciudad": "Bogotá",
+                "latitud": 4.703,
+                "longitud": -74.031,
+            },
+            {
+                "id": "chapinero",
+                "nombre": "Chapinero",
+                "ciudad": "Bogotá",
+                "latitud": 4.649,
+                "longitud": -74.063,
+            },
+        ],
+        "prestadores": [
+            {
+                "id": "pr-001",
+                "nombre": "Hogar Reparaciones Cedritos",
+                "tipos": ["plomeria", "electricidad"],
+                "localidad": "usaquen",
+                "direccion": "Calle 123 # 1-87",
+                "latitud": 4.706,
+                "longitud": -74.0352,
+                "tiempoLlegadaMin": 20,
+            },
+            {
+                "id": "pr-004",
+                "nombre": "Cristales Cedritos",
+                "tipos": ["vidrios"],
+                "localidad": "usaquen",
+                "direccion": "Calle 128 # 1-78",
+                "latitud": 4.7106,
+                "longitud": -74.0353,
+                "tiempoLlegadaMin": 15,
+            },
+            {
+                "id": "pr-007",
+                "nombre": "Tuberías y Griferías Chapinero",
+                "tipos": ["plomeria"],
+                "localidad": "chapinero",
+                "direccion": "Calle 62 # 29-49",
+                "latitud": 4.6507,
+                "longitud": -74.0655,
+                "tiempoLlegadaMin": 40,
+            },
+        ],
+        "oficinas": [
+            {
+                "id": "ofi-bancolombia-001",
+                "banco": "Bancolombia",
+                "nombre": "Oficina Cedritos",
+                "direccion": "Calle 117 # 1-33",
+                "ciudad": "Bogotá",
+                "latitud": 4.7008,
+                "longitud": -74.024,
+            },
+            {
+                "id": "ofi-bbva-001",
+                "banco": "BBVA",
+                "nombre": "Oficina Chapinero",
+                "direccion": "Carrera 13 # 60-20",
+                "ciudad": "Bogotá",
+                "latitud": 4.6487,
+                "longitud": -74.0636,
+            },
+        ],
+    }
+
+    def __init__(self) -> None:
+        self.llamadas = 0
+
+    async def obtener_catalogo(self, mercado: str) -> dict:
+        self.llamadas += 1
+        if mercado != "CO":
+            raise RecursoNoEncontrado("Catálogo de siniestros no encontrado")
+        return copy.deepcopy(self.CATALOGO)
 
 
 class FakeEvidencias:
@@ -455,6 +551,8 @@ class FakeSiniestros:
     def __init__(self) -> None:
         self.llamadas: list[tuple] = []
         self.entregas: list[tuple] = []
+        self.ayudas: list[tuple] = []
+        self._ayudas_por_llave: dict[tuple[str, str, str], dict] = {}
         self._por_llave: dict[tuple[str, str], str] = {}
         self._items: dict[str, dict] = {}
         self._duenos: dict[str, str] = {}
@@ -522,6 +620,7 @@ class FakeSiniestros:
             "pago": None,
             "archivos": self._archivos(datos, archivos, ahora),
             "evento": None,
+            "asistencias": [],
         }
         self._items[siniestro["id"]] = siniestro
         self._duenos[siniestro["id"]] = cliente_id
@@ -583,6 +682,42 @@ class FakeSiniestros:
             fechaLimite=self._limite(ahora),
         )
         return dict(guardado)
+
+    async def pedir_ayuda(
+        self, cliente_id: str, siniestro_id: str, cuerpo: dict, idempotency_key: str | None
+    ) -> dict:
+        self.ayudas.append((cliente_id, siniestro_id, cuerpo, idempotency_key))
+        siniestro = await self.obtener_siniestro(cliente_id, siniestro_id)
+        previa = self._ayudas_por_llave.get((cliente_id, siniestro_id, idempotency_key or ""))
+        if idempotency_key and previa:
+            return previa
+        if siniestro["tipo"] != "INCENDIO_TERREMOTO":
+            raise Conflicto(
+                f"Un siniestro de {siniestro['tipo']} no tiene ayuda en sitio",
+                codigo="AYUDA_NO_DISPONIBLE",
+            )
+        if siniestro["estado"] not in ("EN_ESTUDIO", "FALTA_INFORMACION"):
+            raise Conflicto(
+                f"El siniestro está {siniestro['estado']}: no admite esa acción",
+                codigo="ESTADO_NO_PERMITE",
+            )
+        asistencia = {
+            "id": str(uuid.uuid4()),
+            "numero": f"ASI-{datetime.now(UTC).year}-{uuid.uuid4().hex[:6].upper()}",
+            "tipo": cuerpo["tipo"],
+            "prestador": dict(cuerpo["prestador"]),
+            "tiempoLlegadaMin": cuerpo["prestador"]["tiempoLlegadaMin"],
+            "origen": cuerpo["origen"],
+            "latitud": cuerpo.get("latitud"),
+            "longitud": cuerpo.get("longitud"),
+            "direccion": cuerpo.get("direccion"),
+            "localidad": cuerpo.get("localidad"),
+            "solicitadaEn": self._ahora(),
+        }
+        self._items[siniestro_id]["asistencias"].append(asistencia)
+        if idempotency_key:
+            self._ayudas_por_llave[(cliente_id, siniestro_id, idempotency_key)] = asistencia
+        return dict(asistencia)
 
     def pedir_evidencia(self, siniestro_id: str, detalle: str) -> None:
         """Lo que hará la bandeja del ``ADMIN`` (BITS-377): deja el siniestro en

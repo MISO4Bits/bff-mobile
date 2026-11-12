@@ -22,6 +22,8 @@ from pydantic import BaseModel, ValidationError
 from app.api.schemas import (
     PATRON_IDIOMA,
     PATRON_VERSION,
+    AsistenciaOut,
+    CatalogoSiniestrosOut,
     CotizacionOut,
     CotizacionRequest,
     CredencialesRequest,
@@ -33,6 +35,7 @@ from app.api.schemas import (
     EstadoEvidenciaOut,
     EstadoPoliza,
     EvidenciaSubidaOut,
+    PedirAyudaRequest,
     PolizaOut,
     RefrescoRequest,
     RegistrarDispositivoRequest,
@@ -55,6 +58,7 @@ from app.domain import (
 )
 from app.logging_utils import sanear_para_log
 from app.services import (
+    CatalogoSiniestrosService,
     CotizacionesService,
     CreditosHipotecariosService,
     DispositivosService,
@@ -120,6 +124,13 @@ def get_siniestros(request: Request) -> SiniestrosService:
 
 
 SiniestrosDep = Annotated[SiniestrosService, Depends(get_siniestros)]
+
+
+def get_catalogo_siniestros(request: Request) -> CatalogoSiniestrosService:
+    return request.app.state.catalogo_siniestros
+
+
+CatalogoSiniestrosDep = Annotated[CatalogoSiniestrosService, Depends(get_catalogo_siniestros)]
 
 
 def get_evidencias(request: Request) -> EvidenciasIdentidadService:
@@ -560,3 +571,58 @@ async def entregar_evidencias_de_mi_siniestro(
     )
     response.headers["Cache-Control"] = "no-store"
     return SiniestroOut.model_validate(siniestro)
+
+
+@router.get(
+    "/catalogos/siniestros",
+    response_model=CatalogoSiniestrosOut,
+    tags=["Siniestros"],
+)
+async def obtener_catalogo_de_siniestros(
+    claims: ClaimsDep,
+    service: CatalogoSiniestrosDep,
+    response: Response,
+    mercado: Annotated[Literal["CO"], Query()] = "CO",
+) -> CatalogoSiniestrosOut:
+    logger.info(
+        "GET /v1/catalogos/siniestros: solicitud recibida cliente_id=%s mercado=%s",
+        claims.cliente_id,
+        mercado,
+    )
+    catalogo = await service.obtener(mercado)
+    # Es el mismo para todos y casi no cambia, pero se pide con sesión: caché solo del dispositivo.
+    response.headers["Cache-Control"] = "private, max-age=3600"
+    return CatalogoSiniestrosOut.model_validate(catalogo)
+
+
+@router.post(
+    "/cuenta/siniestros/{siniestro_id}/asistencias",
+    response_model=AsistenciaOut,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Siniestros"],
+)
+async def pedir_ayuda_en_sitio(
+    siniestro_id: str,
+    payload: PedirAyudaRequest,
+    claims: ClaimsDep,
+    service: SiniestrosDep,
+    response: Response,
+    idempotency_key: LlaveDeIdempotencia = None,
+) -> AsistenciaOut:
+    # Ni la ubicación ni la dirección del cliente se escriben en el log.
+    logger.info(
+        "POST /v1/cuenta/siniestros/%s/asistencias: solicitud recibida cliente_id=%s "
+        "tipo=%s origen=%s",
+        sanear_para_log(siniestro_id),
+        claims.cliente_id,
+        payload.tipo,
+        payload.origen,
+    )
+    asistencia = await service.pedir_ayuda(
+        claims.cliente_id,
+        siniestro_id,
+        payload.model_dump(by_alias=True, mode="json", exclude_none=True),
+        idempotency_key,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return AsistenciaOut.model_validate(asistencia)

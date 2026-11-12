@@ -30,6 +30,7 @@ from app.domain import (
     hoy_en_colombia,
 )
 from app.ports import (
+    CatalogoSiniestrosPort,
     CoreIdentityPort,
     CotizacionPort,
     CreditosHipotecariosPort,
@@ -309,3 +310,34 @@ class SiniestrosService:
         return await self._siniestros.entregar_evidencias(
             cliente_id, siniestro_id, datos, archivos, idempotency_key
         )
+
+    async def pedir_ayuda(
+        self, cliente_id: str, siniestro_id: str, cuerpo: dict, idempotency_key: str | None
+    ) -> dict:
+        return await self._siniestros.pedir_ayuda(cliente_id, siniestro_id, cuerpo, idempotency_key)
+
+
+class CatalogoSiniestrosService:
+    """Catálogo de ayuda en sitio y oficinas. Es configuración del mercado que casi no cambia:
+    se guarda en memoria una hora para no pedirla a svc-productos en cada pantalla. La app filtra
+    por tipo y ordena por distancia en el teléfono."""
+
+    def __init__(
+        self,
+        catalogo: CatalogoSiniestrosPort,
+        *,
+        cache_segundos: float = 3600,
+        reloj: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._catalogo = catalogo
+        self._cache_segundos = cache_segundos
+        self._reloj = reloj
+        self._cache: dict[str, tuple[float, dict]] = {}
+
+    async def obtener(self, mercado: str) -> dict:
+        guardado = self._cache.get(mercado)
+        if guardado is not None and self._reloj() - guardado[0] < self._cache_segundos:
+            return guardado[1]
+        catalogo = await self._catalogo.obtener_catalogo(mercado)
+        self._cache[mercado] = (self._reloj(), catalogo)
+        return catalogo

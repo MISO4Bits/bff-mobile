@@ -6,7 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 _EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
@@ -403,6 +403,108 @@ class SiniestroResumenOut(_Model):
     actualizado_en: AwareDatetime
 
 
+class PrestadorAsistenciaOut(_Respuesta):
+    id: str
+    nombre: str
+    direccion: str
+    tiempo_llegada_min: int
+
+
+class AsistenciaOut(_Respuesta):
+    """Una solicitud de ayuda en sitio, como la guarda svc-core (BITS-385)."""
+
+    id: str
+    numero: str
+    tipo: str
+    prestador: PrestadorAsistenciaOut
+    tiempo_llegada_min: int
+    origen: Literal["FOTOS", "TELEFONO", "DIRECCION"]
+    latitud: float | None = None
+    longitud: float | None = None
+    direccion: str | None = None
+    localidad: str | None = None
+    solicitada_en: AwareDatetime
+
+
+class PrestadorAsistenciaIn(_Model):
+    id: str = Field(min_length=1, max_length=40)
+    nombre: str = Field(min_length=1, max_length=120)
+    direccion: str = Field(min_length=1, max_length=200)
+    tiempo_llegada_min: int = Field(ge=1, le=1440)
+
+
+class PedirAyudaRequest(_Model):
+    """Pedir ayuda en sitio: el prestador que el cliente eligió en el catálogo y el punto al que
+    va. ``FOTOS`` y ``TELEFONO`` llevan coordenadas; ``DIRECCION`` lleva la dirección escrita y la
+    localidad. Mezclarlos es 400."""
+
+    tipo: str = Field(pattern=r"^[a-z][a-z0-9-]{0,39}$")
+    prestador: PrestadorAsistenciaIn
+    origen: Literal["FOTOS", "TELEFONO", "DIRECCION"]
+    latitud: float | None = Field(default=None, ge=-90, le=90)
+    longitud: float | None = Field(default=None, ge=-180, le=180)
+    direccion: str | None = Field(default=None, min_length=1, max_length=200)
+    localidad: str | None = Field(default=None, min_length=1, max_length=60)
+
+    @model_validator(mode="after")
+    def _punto_coherente(self) -> PedirAyudaRequest:
+        if self.origen == "DIRECCION":
+            if not self.direccion or not self.localidad:
+                raise ValueError("Con origen DIRECCION van la dirección y la localidad")
+            if self.latitud is not None or self.longitud is not None:
+                raise ValueError("Con origen DIRECCION no van coordenadas")
+        else:
+            if self.latitud is None or self.longitud is None:
+                raise ValueError(f"Con origen {self.origen} van la latitud y la longitud")
+            if self.direccion is not None or self.localidad is not None:
+                raise ValueError(f"Con origen {self.origen} no van dirección ni localidad")
+        return self
+
+
+class TipoAyudaOut(_Respuesta):
+    id: str
+    nombre: str
+    orden: int
+
+
+class LocalidadOut(_Respuesta):
+    id: str
+    nombre: str
+    ciudad: str
+    latitud: float
+    longitud: float
+
+
+class PrestadorOut(_Respuesta):
+    id: str
+    nombre: str
+    tipos: list[str]
+    localidad: str
+    direccion: str
+    latitud: float
+    longitud: float
+    tiempo_llegada_min: int
+
+
+class OficinaBancariaOut(_Respuesta):
+    id: str
+    banco: str
+    nombre: str
+    direccion: str
+    ciudad: str
+    latitud: float
+    longitud: float
+
+
+class CatalogoSiniestrosOut(_Respuesta):
+    mercado: Literal["CO"]
+    version: int
+    tipos_ayuda: list[TipoAyudaOut]
+    localidades: list[LocalidadOut]
+    prestadores: list[PrestadorOut]
+    oficinas: list[OficinaBancariaOut]
+
+
 class SiniestroOut(SiniestroResumenOut):
     """El detalle que ve el cliente. svc-core no devuelve el saldo del crédito ni el destino del
     pago: ahí está el número de cuenta."""
@@ -416,3 +518,5 @@ class SiniestroOut(SiniestroResumenOut):
     pago: PagoOut | None = None
     archivos: list[ArchivoSiniestroOut]
     evento: EventoSismoOut | None = None
+    # Opcional: svc-core solo la devuelve desde BITS-385; sin ella el detalle sigue igual.
+    asistencias: list[AsistenciaOut] = Field(default_factory=list)
