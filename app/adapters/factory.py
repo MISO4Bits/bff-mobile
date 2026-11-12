@@ -10,6 +10,7 @@ import httpx
 from app.adapters.core_client import CoreClientAdapter
 from app.adapters.cotizacion_client import CotizacionClientAdapter
 from app.adapters.fakes import (
+    FakeCatalogoSiniestros,
     FakeCoreIdentity,
     FakeCotizacion,
     FakeCreditosHipotecarios,
@@ -27,6 +28,7 @@ from app.adapters.productos_client import ProductosClientAdapter
 from app.config import Settings
 from app.domain import ClienteCore
 from app.ports import (
+    CatalogoSiniestrosPort,
     CoreIdentityPort,
     CotizacionPort,
     CreditosHipotecariosPort,
@@ -58,6 +60,8 @@ class Dependencias:
     dispositivos: DispositivosPort
     # En modo http es el mismo adaptador que ``core``.
     siniestros: SiniestrosPort
+    # En modo http es el mismo adaptador que ``productos``.
+    catalogo: CatalogoSiniestrosPort
 
     async def aclose(self) -> None:
         for adapter in (self.identity, self.core, self.creditos, self.entidades, self.cotizacion):
@@ -122,6 +126,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             FakeDocumentosLegales(),
             FakeDispositivos(),
             FakeSiniestros(),
+            FakeCatalogoSiniestros(),
         )
 
     if settings.adapters == "http":
@@ -159,6 +164,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             productos,
             core,
             core,
+            productos,
         )
 
     raise ValueError(f"adapters no soportado: {settings.adapters}")

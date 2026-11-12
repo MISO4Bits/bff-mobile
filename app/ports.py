@@ -150,3 +150,21 @@ class SiniestrosPort(Protocol):
         """Envía lo que Solventa pidió; solo con el siniestro en ``FALTA_INFORMACION`` (si no,
         ``Conflicto`` con ``codigo = ESTADO_NO_PERMITE``). Devuelve el detalle actualizado."""
         ...
+
+    async def pedir_ayuda(
+        self, cliente_id: str, siniestro_id: str, cuerpo: dict, idempotency_key: str | None
+    ) -> dict:
+        """Solicita ayuda en sitio con el prestador elegido (BITS-385). Solo en un siniestro de
+        incendio o terremoto en curso: si no, ``Conflicto`` con ``codigo = AYUDA_NO_DISPONIBLE``
+        o ``ESTADO_NO_PERMITE``. Con la misma ``idempotency_key`` devuelve la misma solicitud."""
+        ...
+
+
+@runtime_checkable
+class CatalogoSiniestrosPort(Protocol):
+    """Catálogo de ayuda en sitio y oficinas de svc-productos (BITS-385). Devuelve el cuerpo tal
+    cual lo entrega svc-productos (ya validado allá)."""
+
+    async def obtener_catalogo(self, mercado: str) -> dict:
+        """Tipos de ayuda, localidades, prestadores y oficinas del mercado."""
+        ...

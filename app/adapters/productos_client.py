@@ -35,6 +35,17 @@ class ProductosClientAdapter:
             for item in resp.json()
         ]
 
+    async def obtener_catalogo(self, mercado: str) -> dict:
+        resp = await self._http.request(
+            "GET", "/v1/catalogo-siniestros", params={"mercado": mercado}
+        )
+        if resp.status_code == 404:
+            raise RecursoNoEncontrado("Catálogo de siniestros no encontrado")
+        if resp.status_code in (400, 422):
+            raise SolicitudInvalida(_detalle(resp))
+        _asegurar_ok(resp)
+        return resp.json()
+
     async def listar_vigentes(
         self, mercado: str, idioma: str, tipo: str | None = None
     ) -> list[DocumentoLegal]:

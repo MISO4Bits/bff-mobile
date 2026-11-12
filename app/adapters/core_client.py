@@ -183,6 +183,23 @@ class CoreClientAdapter:
         logger.info("evidencia entregada cliente_id=%s id=%s", cliente_id, siniestro["id"])
         return siniestro
 
+    async def pedir_ayuda(
+        self, cliente_id: str, siniestro_id: str, cuerpo: dict, idempotency_key: str | None
+    ) -> dict:
+        resp = await self._http.request(
+            "POST",
+            f"{CLIENTES}/{cliente_id}/siniestros/{quote(siniestro_id, safe='')}/asistencias",
+            json=cuerpo,
+            headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
+            timeout=self._timeout_siniestros,
+            # Sin llave, repetir crearía otra solicitud: solo se reintenta con la misma llave.
+            reintentos=None if idempotency_key else 0,
+        )
+        _asegurar_poliza_ok(resp)
+        # Ni la ubicación ni la dirección del cliente se escriben en el log.
+        logger.info("ayuda solicitada cliente_id=%s siniestro_id=%s", cliente_id, siniestro_id)
+        return resp.json()
+
     # --- pólizas (BITS-101) ---
 
     async def solicitar(self, cliente_id: str, cuerpo: dict) -> tuple[dict, bool]:
