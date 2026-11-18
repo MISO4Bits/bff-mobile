@@ -242,6 +242,9 @@ class PolizasService:
     async def documento(self, cliente_id: str, poliza_id: str) -> tuple[dict, bool]:
         return await self._polizas.documento(cliente_id, poliza_id)
 
+    async def decidir_renovacion(self, cliente_id: str, poliza_id: str, decision: str) -> dict:
+        return await self._polizas.decidir_renovacion(cliente_id, poliza_id, decision)
+
 
 class DispositivosService:
     """Dispositivos para avisos push. svc-core es el dueño del cliente y guarda los tokens; aquí
