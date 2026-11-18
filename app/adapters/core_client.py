@@ -240,6 +240,17 @@ class CoreClientAdapter:
         _asegurar_poliza_ok(resp)
         return resp.json(), resp.status_code == 200
 
+    async def decidir_renovacion(self, cliente_id: str, poliza_id: str, decision: str) -> dict:
+        resp = await self._http.request(
+            "POST",
+            f"{CLIENTES}/{cliente_id}/polizas/{poliza_id}/renovacion",
+            json={"decision": decision},
+            timeout=self._timeout_polizas,
+        )
+        _asegurar_poliza_ok(resp)
+        logger.info("renovación decidida poliza_id=%s decision=%s", poliza_id, decision)
+        return resp.json()
+
     # --- dispositivos para avisos push (BITS-229) ---
     # Ambas son idempotentes, así que se reintentan como las lecturas.
 
